@@ -59,7 +59,7 @@ namespace nerfnet
     radio_.setCRCLength(RF24_CRC_8);
     CHECK(radio_.isChipConnected(), "NRF24L01 is unavailable");
 
-    LOGI("RADIO AUTO NEGOTIATION\n");
+    LOGS("\nRADIO AUTO NEGOTIATION\n");
 
     // Begin auto negotiation section //
     // - Radio opens a pipe with a discovery address
@@ -67,64 +67,59 @@ namespace nerfnet
     // - If no response, it sets its reading address and writing address to defaults
     // - if a radio receives a discovery message, it will respond with its reading address and writing address
 
-
     uint32_t base_address = 0xABDFF00;
     uint32_t discovery_pipe_address = base_address;
     uint32_t reading_pipe_address = base_address + 1;
     uint32_t writing_pipe_address = base_address + 2;
 
-    bool received_discovery_message = false;
-
     uint32_t discovery_pipe = 2;
     RadioPacket discovery_packet;
     std::memset(&discovery_packet, 0, sizeof(discovery_packet));
     discovery_packet.type = packet_type::DISCOVERY;
-      
-  
-    LOGI("opening discovery reading pipe on %d, 0x%x", discovery_pipe, discovery_pipe_address);
+
+    LOGS("opening discovery reading pipe on %d, 0x%x", discovery_pipe, discovery_pipe_address);
     radio_.openReadingPipe(discovery_pipe, discovery_pipe_address);
     radio_.openWritingPipe(discovery_pipe_address);
     radio_.stopListening();
     radio_.write(&discovery_packet, sizeof(discovery_packet)); // transmit discovery payload
-    radio_.txStandBy(); // ensure the radio is in standby mode before listening
+    radio_.txStandBy();                                        // ensure the radio is in standby mode before listening
     radio_.startListening();
 
-    //Wait 5 seconds for a returning discovery ack message
+    // Wait 5 seconds for a returning discovery ack message
+    bool configuration_complete = false;
     auto start = nerfnet::TimeNowUs();
     RadioPacket recvd_packet;
-    bool configuration_complete = false;
+
     while (!configuration_complete)
     {
       if (radio_.available())
       {
         uint8_t pipe;
         if (radio_.available(&pipe))
-        { // is there a payload? get the pipe number that received it
-          uint8_t bytes = radio_.getPayloadSize(); // get the size of the payload
-          radio_.read(&recvd_packet, bytes);            // fetch payload from FIFO
-          // LOGI("Received %d bytes on pipe %d", bytes, pipe); // print the size of the payload
-          // for (int i = 0; i < bytes; ++i)
-          // {
-          //   printf("%02X ", static_cast<unsigned char>(read_buffer[i]));
-          // }
-          // printf("\n");
-          
-          switch(recvd_packet.type)
+        {
+
+          uint8_t bytes = radio_.getPayloadSize();
+          radio_.read(&recvd_packet, bytes);
+
+          switch (recvd_packet.type)
           {
-            case packet_type::DISCOVERY:
-            LOGI("Received Discovery");
+          case packet_type::DISCOVERY:
+            LOGS("Received Discovery");
             radio_.stopListening();
-            discovery_packet.type = packet_type::DISCOVERY_ACK;
-            discovery_packet.data[0] = reading_pipe_address & 0xFF;
-            discovery_packet.data[1] = writing_pipe_address & 0xFF;
-            radio_.write(&discovery_packet, sizeof(discovery_packet)); // transmit discovery payload
-            radio_.txStandBy(); // ensure the radio is in standby mode before listening
-            
+            RadioPacket send_packet;
+            std::memset(&send_packet, 0, sizeof(send_packet));
+            send_packet.type = packet_type::DISCOVERY_ACK;
+            send_packet.data[0] = reading_pipe_address & 0xFF;
+            send_packet.data[1] = writing_pipe_address & 0xFF;
+            radio_.write(&send_packet, sizeof(send_packet)); // transmit discovery payload
+            radio_.txStandBy();                              // ensure the radio is in standby mode before listening
+
             configuration_complete = true;
-            
+
             break;
-            case packet_type::DISCOVERY_ACK:
-            LOGI("Received Discovery Ack");
+          case packet_type::DISCOVERY_ACK:
+            radio_.stopListening();
+            LOGS("Received Discovery Ack");
             reading_pipe_address = recvd_packet.data[1] | base_address;
             writing_pipe_address = recvd_packet.data[0] | base_address;
             configuration_complete = true;
@@ -132,61 +127,71 @@ namespace nerfnet
           }
         }
       }
-    }
-
-    LOGI("Reading pipe address: 0x%x", reading_pipe_address);
-    LOGI("Writing pipe address: 0x%x", writing_pipe_address);
-    exit(0);
-
-    // if (device_id_ == 1)
-    // {
-    //   LOGI("opening writing pipe on 0x%x", starting_address);
-    //   radio_.openWritingPipe(starting_address);
-
-    //   LOGI("opening reading pipe on 0x%x", starting_address + 1);
-    //   radio_.openReadingPipe(kPipeId, starting_address + 1);
-    // }
-    // else
-    // {
-    //   LOGI("opening writing pipe on 0x%x", starting_address + 1);
-    //   radio_.openWritingPipe(starting_address + 1);
-
-    //   LOGI("opening reading pipe on 0x%x", starting_address);
-    //   radio_.openReadingPipe(kPipeId, starting_address);
-    // }
-
-    char payload[32] = "Hello World!";
-    start = nerfnet::TimeNowUs();
-    while (1)
-    {
-      uint8_t available_pipe_ = 0;
-      if (radio_.available())
-      {
-        uint8_t pipe;
-        if (radio_.available(&pipe))
-        {                                                 // is there a payload? get the pipe number that received it
-          uint8_t bytes = radio_.getPayloadSize();        // get the size of the payload
-          radio_.read(&payload, bytes);                   // fetch payload from FIFO
-          LOGI("Received %d bytes : %s on pipe %d", bytes, payload, pipe); // print the size of the payload
-        }
-      }
+      // send discovery every half second
       if (nerfnet::TimeNowUs() - start > 1000000)
       {
-        start = nerfnet::TimeNowUs();                             // end the timer
-        radio_.stopListening();                                   // put radio in TX mode
-        bool result = radio_.write(&payload[0], sizeof(payload)); // transmit & save the report
+        start = nerfnet::TimeNowUs();
+        radio_.stopListening();                                                  // put radio in TX mode
+        bool result = radio_.write(&discovery_packet, sizeof(discovery_packet)); // transmit & save the report
         radio_.txStandBy();
         if (result)
         {
-          LOGI("Transmission successful!");
+          LOGS("Sent discovery packet");
         }
         else
         {
-          LOGI("Transmission failed or timed out");
+          LOGS("Failed to send discovery packet");
         }
         radio_.startListening();
       }
     }
+
+    radio_.stopListening();
+
+    radio_.flush_rx();
+    radio_.flush_tx();
+
+    LOGS("Reading pipe address: 0x%x", reading_pipe_address);
+    LOGS("Writing pipe address: 0x%x", writing_pipe_address);
+    radio_.openReadingPipe(kPipeId, reading_pipe_address);
+    radio_.openWritingPipe(writing_pipe_address);
+
+    radio_.startListening();
+
+    LOGS("\nRADIO AUTO NEGOTIATION COMPLETE\n");
+
+    // char payload[32] = "Hello World!";
+    // start = nerfnet::TimeNowUs();
+    // while (1)
+    // {
+    //   uint8_t available_pipe_ = 0;
+    //   if (radio_.available())
+    //   {
+    //     uint8_t pipe;
+    //     if (radio_.available(&pipe))
+    //     {                                                 // is there a payload? get the pipe number that received it
+    //       uint8_t bytes = radio_.getPayloadSize();        // get the size of the payload
+    //       radio_.read(&payload, bytes);                   // fetch payload from FIFO
+    //       LOGS("Received %d bytes : %s on pipe %d", bytes, payload, pipe); // print the size of the payload
+    //     }
+    //   }
+    //   if (nerfnet::TimeNowUs() - start > 1000000)
+    //   {
+    //     start = nerfnet::TimeNowUs();                             // end the timer
+    //     radio_.stopListening();                                   // put radio in TX mode
+    //     bool result = radio_.write(&payload[0], sizeof(payload)); // transmit & save the report
+    //     radio_.txStandBy();
+    //     if (result)
+    //     {
+    //       LOGS("Transmission successful!");
+    //     }
+    //     else
+    //     {
+    //       LOGS("Transmission failed or timed out");
+    //     }
+    //     radio_.startListening();
+    //   }
+    // }
 
     pending_network_frame_buffer_.clear();
     std::vector<uint8_t> hello_message = {'H', 'e', 'l', 'l', 'o', ' ', 'f', 'r', 'o', 'm', ' ', 't', 'h', 'e', ' ', 'o', 't', 'h', 'e', 'r', ' ', 's', 'i', 'd', 'e'};
@@ -229,12 +234,12 @@ namespace nerfnet
       if (TimeNowUs() - last_send_time > 1000000)
       {
         last_send_time = TimeNowUs();
-        LOGI("Sending");
+        LOGS("Sending");
         auto result = RadioSend({'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd'});
         switch (result)
         {
         case RequestResult::Success:
-          LOGI("Sent hello message");
+          LOGS("Sent hello message");
           break;
         case RequestResult::Malformed:
           LOGE("Malformed request");
@@ -247,19 +252,20 @@ namespace nerfnet
           break;
         }
       }
-    }
-    while (1)
-    {
-      std::vector<uint8_t> response(kMaxPacketSize);
-      LOGI("Received response");
-      auto result = RadioReceive(response);
-      LOGI("Received response");
+
+      uint8_t response[kMaxPacketSize];
+      uint8_t pipe;
+      auto result = RadioReceive(&response[0], &pipe);
       switch (result)
       {
       case RequestResult::Success:
-        LOGI("Received response");
-        LOGI("Response: %s", std::string(response.begin(), response.end()).c_str());
+      {
+        LOGS("Received response");
+        std::string response_str(response, response + kMaxPacketSize);
+        LOGS("Response: %s", response_str.c_str());
+
         break;
+      }
       case RequestResult::Timeout:
         // LOGE("Timeout receiving response");
         break;
@@ -274,7 +280,7 @@ namespace nerfnet
       std::lock_guard<std::mutex> lock(pending_network_frame_buffer_mutex_);
       if (connection_reset_required_)
       {
-        LOGI("Resetting connection");
+        LOGS("Resetting connection");
         if (!ConnectionReset())
         {
           LOGE("Connection reset failed");
@@ -282,7 +288,7 @@ namespace nerfnet
         }
         else
         {
-          LOGI("Connection reset successfully");
+          LOGS("Connection reset successfully");
           connection_reset_required_ = false;
         }
       }
@@ -324,12 +330,12 @@ namespace nerfnet
     }
 
     std::vector<uint8_t> response(kMaxPacketSize, 0x00);
-    result = RadioReceive(response, /*timeout_us=*/100000);
-    if (result != RequestResult::Success)
-    {
-      LOGE("Failed to receive tunnel reset response");
-      return false;
-    }
+    // result = RadioReceive(response, /*timeout_us=*/100000);
+    // if (result != RequestResult::Success)
+    // {
+    //   LOGE("Failed to receive tunnel reset response");
+    //   return false;
+    // }
 
     return response[0] == 0x00;
   }
@@ -385,63 +391,64 @@ namespace nerfnet
       return false;
     }
 
-    std::vector<uint8_t> response(kMaxPacketSize);
-    result = RadioReceive(response, /*timeout_us=*/100000);
+    uint8_t response[kMaxPacketSize];
+    uint8_t pipe;
+    result = RadioReceive(response, &pipe);
     if (result != RequestResult::Success)
     {
       LOGE("Failed to receive network tunnel txrx request");
       return false;
     }
+    return true;
+    // if (!DecodeTunnelTxRxPacket(response, tunnel))
+    // {
+    //   return false;
+    // }
 
-    if (!DecodeTunnelTxRxPacket(response, tunnel))
-    {
-      return false;
-    }
+    // if (!tunnel.id.has_value() || !tunnel.ack_id.has_value())
+    // {
+    //   LOGE("Missing tunnel fields");
+    //   return false;
+    // }
 
-    if (!tunnel.id.has_value() || !tunnel.ack_id.has_value())
-    {
-      LOGE("Missing tunnel fields");
-      return false;
-    }
+    // bool success = true;
+    // if (tunnel.ack_id.value() != next_id_)
+    // {
+    //   LOGE("Secondary radio failed to ack, retransmitting: "
+    //        "ack_id=%u, next_id=%u",
+    //        tunnel.ack_id.value(), next_id_);
+    //   success = false;
+    // }
+    // else
+    // {
+    //   AdvanceID();
+    //   if (!pending_network_frame_buffer_.empty())
+    //   {
+    //     auto &frame = pending_network_frame_buffer_.front();
+    //     frame.erase(frame.begin(), frame.begin() + GetTransferSize(frame));
+    //     if (frame.empty())
+    //     {
+    //       pending_network_frame_buffer_.pop_front();
+    //     }
+    //   }
+    // }
 
-    bool success = true;
-    if (tunnel.ack_id.value() != next_id_)
-    {
-      LOGE("Secondary radio failed to ack, retransmitting: "
-           "ack_id=%u, next_id=%u",
-           tunnel.ack_id.value(), next_id_);
-      success = false;
-    }
-    else
-    {
-      AdvanceID();
-      if (!pending_network_frame_buffer_.empty())
-      {
-        auto &frame = pending_network_frame_buffer_.front();
-        frame.erase(frame.begin(), frame.begin() + GetTransferSize(frame));
-        if (frame.empty())
-        {
-          pending_network_frame_buffer_.pop_front();
-        }
-      }
-    }
+    // if (!ValidateID(tunnel.id.value()))
+    // {
+    //   LOGE("Received non-sequential packet");
+    //   success = false;
+    // }
+    // else if (!tunnel.payload.empty())
+    // {
+    //   frame_buffer_.insert(frame_buffer_.end(),
+    //                        tunnel.payload.begin(), tunnel.payload.end());
+    //   if (tunnel.bytes_left <= kMaxPayloadSize)
+    //   {
+    //     WriteTunnel();
+    //   }
+    // }
 
-    if (!ValidateID(tunnel.id.value()))
-    {
-      LOGE("Received non-sequential packet");
-      success = false;
-    }
-    else if (!tunnel.payload.empty())
-    {
-      frame_buffer_.insert(frame_buffer_.end(),
-                           tunnel.payload.begin(), tunnel.payload.end());
-      if (tunnel.bytes_left <= kMaxPayloadSize)
-      {
-        WriteTunnel();
-      }
-    }
-
-    return success;
+    //return success;
   }
 
   /**
@@ -493,20 +500,22 @@ namespace nerfnet
     if (request.size() > kMaxPacketSize)
     {
       LOGE("Request is too large (%zu vs %zu)", request.size(), kMaxPacketSize);
+      radio_.startListening();
       return RequestResult::Malformed;
     }
 
     if (!radio_.write(request.data(), request.size()))
     {
       LOGE("Failed to write request");
+      radio_.startListening();
       return RequestResult::TransmitError;
     }
 
     while (!radio_.txStandBy())
     {
-      LOGI("Waiting for transmit standby");
+      LOGS("Waiting for transmit standby");
     }
-
+    radio_.startListening();
     return RequestResult::Success;
   }
 
@@ -527,11 +536,12 @@ namespace nerfnet
    *         RequestResult::Timeout if the timeout is exceeded.
    */
   CommonRadioInterface::RequestResult CommonRadioInterface::RadioReceive(
-      std::vector<uint8_t> &response, uint64_t timeout_us)
+      uint8_t *response,
+      uint8_t *pipe,
+      uint64_t timeout_us)
   {
-    radio_.startListening();
     uint64_t start_us = TimeNowUs();
-    while (!radio_.available())
+    while (!radio_.available() && (timeout_us != 0))
     {
       if (timeout_us != 0 && (start_us + timeout_us) < TimeNowUs())
       {
@@ -539,8 +549,17 @@ namespace nerfnet
         return RequestResult::Timeout;
       }
     }
-
-    radio_.read(response.data(), response.size());
+    if(radio_.available())
+    {
+      uint8_t pipe;
+      if(radio_.available(&pipe))
+      {
+        uint8_t bytes = radio_.getPayloadSize();
+        radio_.read(response, bytes);
+      }
+    }else{
+      return RequestResult::Timeout;
+    }
     return RequestResult::Success;
   }
 
@@ -656,7 +675,7 @@ namespace nerfnet
         pending_network_frame_buffer_.emplace_back(&buffer[0], &buffer[bytes_read]);
         if (tunnel_logs_enabled_ || true)
         {
-          LOGI("Read %zu bytes from the tunnel", pending_network_frame_buffer_.back().size());
+          LOGS("Read %zu bytes from the tunnel", pending_network_frame_buffer_.back().size());
         }
       }
 
@@ -784,7 +803,7 @@ namespace nerfnet
                               frame_buffer_.data(), frame_buffer_.size());
     if (tunnel_logs_enabled_)
     {
-      LOGI("Writing %d bytes to the tunnel", frame_buffer_.size());
+      LOGS("Writing %d bytes to the tunnel", frame_buffer_.size());
     }
 
     frame_buffer_.clear();

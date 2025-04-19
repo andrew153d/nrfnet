@@ -38,7 +38,7 @@ namespace nerfnet
   {
   public:
     // Setup the common radio link.
-    CommonRadioInterface(uint8_t device_id, 
+    CommonRadioInterface(uint8_t device_id,
                          uint16_t ce_pin, int tunnel_fd,
                          uint32_t primary_addr, uint32_t secondary_addr,
                          uint8_t channel, uint64_t poll_interval_us);
@@ -86,19 +86,20 @@ namespace nerfnet
       DISCOVERY,
       DISCOVERY_ACK,
     };
-    // Radio Packet
-    #pragma pack(push, 1)
-    struct RadioPacket {
-      uint8_t type:2;
-      uint8_t padding:6;
+// Radio Packet
+#pragma pack(push, 1)
+    struct RadioPacket
+    {
+      uint8_t type : 2;
+      uint8_t padding : 6;
       uint8_t data[31]; // Add padding to make the struct size 32 bytes
     };
-    #pragma pack(pop)
+#pragma pack(pop)
     static_assert(sizeof(RadioPacket) == 32, "RadioPacket size must be 32 bytes");
 
-
     // A tunnel Tx/Rx request exchanged between systems.
-    struct TunnelTxRxPacket {
+    struct TunnelTxRxPacket
+    {
       std::optional<uint8_t> id;
       std::optional<uint8_t> ack_id;
 
@@ -106,7 +107,7 @@ namespace nerfnet
       std::vector<uint8_t> payload;
     };
 
-    //device id
+    // device id
     uint8_t device_id_;
 
     // The underlying radio.
@@ -146,8 +147,9 @@ namespace nerfnet
     RequestResult RadioSend(const std::vector<uint8_t> &request);
 
     // Reads a message from the radio.
-    RequestResult RadioReceive(std::vector<uint8_t> &response,
-                          uint64_t timeout_us = 0);
+    RequestResult RadioReceive(uint8_t *response,
+                               uint8_t *pipe,
+                               uint64_t timeout_us = 0);
 
     // Returns the size of the read buffer.
     size_t GetReadBufferSize();
