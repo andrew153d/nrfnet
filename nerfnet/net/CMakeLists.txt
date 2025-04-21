@@ -11,6 +11,8 @@ add_executable(nerfnet
   radio_interface.cc
   primary_radio_interface.cc
   secondary_radio_interface.cc
+  autonegotiator.cc
+  common_radio_interface.cc
 )
 
 target_include_directories(nerfnet PRIVATE
