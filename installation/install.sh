@@ -53,12 +53,11 @@ else
     echo "Configuration file already exists: $CONFIG_FILE"
 fi
 
-# Create a systemd service file
+# Create or replace a systemd service file
 SERVICE_FILE="/etc/systemd/system/nrfnet.service"
 
-if [ ! -f "$SERVICE_FILE" ]; then
-    echo "Creating systemd service file: $SERVICE_FILE"
-    cat <<EOL | sudo tee $SERVICE_FILE
+echo "Creating or replacing systemd service file: $SERVICE_FILE"
+cat <<EOL | sudo tee $SERVICE_FILE
 [Unit]
 Description=NRFNet Service
 After=network.target
