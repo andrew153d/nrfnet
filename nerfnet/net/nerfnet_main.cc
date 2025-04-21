@@ -29,6 +29,7 @@
 #include "nerfnet/net/primary_radio_interface.h"
 #include "nerfnet/net/secondary_radio_interface.h"
 #include "nerfnet/util/log.h"
+#include "nerfnet/util/config_parser.h"
 
 // A description of the program.
 constexpr char kDescription[] =
@@ -36,13 +37,6 @@ constexpr char kDescription[] =
 
 // The version of the program.
 constexpr char kVersion[] = "0.0.1";
-
-enum class RadioMode {
-  NotSet,
-  Primary,
-  Secondary,
-  Common,
-};
 
 // Auto Negotiation of the radio interface.
 RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin, uint16_t channel, uint32_t discovery_address = 0xFFFABABA) {
@@ -174,92 +168,48 @@ int OpenTunnel(const std::string_view& device_name) {
 }
 
 int main(int argc, char** argv) {
-  RadioMode mode = RadioMode::NotSet;
-  // Parse command-line arguments.
-  TCLAP::CmdLine cmd(kDescription, ' ', kVersion);
-  TCLAP::ValueArg<std::string> interface_name_arg("i", "interface_name",
-      "Set to the name of the tunnel device.", false, "nerf0", "name", cmd);
-  TCLAP::ValueArg<uint16_t> ce_pin_arg("", "ce_pin",
-      "Set to the index of the NRF24L01 chip-enable pin.", false, 22, "index",
-      cmd);
-  TCLAP::SwitchArg primary_arg("", "primary",
-      "Run this side of the network in primary mode.", false);
-  TCLAP::SwitchArg secondary_arg("", "secondary",
-      "Run this side of the network in secondary mode.", false);
-  TCLAP::SwitchArg auto_negotiation_arg("", "auto",
-      "Automatically negotiate the mode", false);
-  TCLAP::ValueArg<std::string> tunnel_ip_arg("", "tunnel_ip",
-      "The IP address to assign to the tunnel interface.", false, "", "ip",
-      cmd);
-  TCLAP::ValueArg<std::string> tunnel_ip_mask("", "tunnel_mask",
-      "The network mask to use for the tunnel interface.", false,
-      "255.255.255.0", "mask", cmd);
-  std::vector<TCLAP::Arg*> xor_args = {&primary_arg, &secondary_arg, &auto_negotiation_arg};
-  cmd.xorAdd(xor_args);
-  TCLAP::ValueArg<uint32_t> primary_addr_arg("", "primary_addr",
-      "The address to use for the primary side of nerfnet.",
-      false, 0x90019001, "address", cmd);
-  TCLAP::ValueArg<uint32_t> secondary_addr_arg("", "secondary_addr",
-      "The address to use for the secondary side of nerfnet.",
-      false, 0x90009000, "address", cmd);
-  TCLAP::ValueArg<uint8_t> channel_arg("", "channel",
-      "The channel to use for transmit/receive.", false, 1, "channel", cmd);
-  TCLAP::ValueArg<uint32_t> poll_interval_us_arg("", "poll_interval_us",
-      "Used by the primary radio only to determine how often to poll.",
-      false, 100, "microseconds", cmd);
-  TCLAP::SwitchArg enable_tunnel_logs_arg("", "enable_tunnel_logs",
-      "Set to enable verbose logs for read/writes from the tunnel.", cmd);
-  cmd.parse(argc, argv);
+  // Load configuration file
+  ConfigParser config("/etc/nrfnet/nrfnet.conf");
+  config.load();
+  // Print configuration values
+  config.print();
 
-  if (primary_arg.getValue())
-  {
-    mode = RadioMode::Primary;
-  }
-  else if (secondary_arg.getValue())
-  {
-    mode = RadioMode::Secondary;
-  }
-  else
+  RadioMode mode = config.mode.value();
+  
+  if(mode == RadioMode::Automatic)
   {
     LOGI("Negotiating Radio Roles");
-    mode = AutoNegotiateRadioInterface(ce_pin_arg.getValue(), channel_arg.getValue());
+    mode = AutoNegotiateRadioInterface(config.ce_pin.value(), config.channel.value());
     CHECK(mode != RadioMode::NotSet, "Failed to negotiate radio roles");
     LOGI("Negotiated Radio Roles: %s", mode == RadioMode::Primary ? "Primary" : "Secondary");
   }
 
-  std::string tunnel_ip = tunnel_ip_arg.getValue();
-  if (!tunnel_ip_arg.isSet()) {
-    if (mode == RadioMode::Primary) {
-      tunnel_ip = "192.168.10.1";
-    } else if (mode == RadioMode::Secondary) {
-      tunnel_ip = "192.168.10.2";
-    }
-  }
+  std::string tunnel_ip = config.tunnel_ip_address.value();
 
   // Setup tunnel.
-  int tunnel_fd = OpenTunnel(interface_name_arg.getValue());
-  LOGI("tunnel '%s' opened", interface_name_arg.getValue().c_str());
-  SetInterfaceFlags(interface_name_arg.getValue(), IFF_UP);
-  LOGI("tunnel '%s' up", interface_name_arg.getValue().c_str());
-  SetIPAddress(interface_name_arg.getValue(), tunnel_ip,
-      tunnel_ip_mask.getValue());
+  int tunnel_fd = OpenTunnel(config.interface_name.value());
+  LOGI("tunnel '%s' opened", config.interface_name.value().c_str());
+  SetInterfaceFlags(config.interface_name.value(), IFF_UP);
+  LOGI("tunnel '%s' up", config.interface_name.value().c_str());
+  SetIPAddress(config.interface_name.value(), tunnel_ip,
+   config.tunnel_netmask.value());
   LOGI("tunnel '%s' configured with '%s' mask '%s'",
-       interface_name_arg.getValue().c_str(), tunnel_ip.c_str(),
-       tunnel_ip_mask.getValue().c_str());
+       config.interface_name.value().c_str(), tunnel_ip.c_str(),
+       config.tunnel_netmask.value().c_str());
 
   if (mode == RadioMode::Primary) {
     nerfnet::PrimaryRadioInterface radio_interface(
-        ce_pin_arg.getValue(), tunnel_fd,
-        primary_addr_arg.getValue(), secondary_addr_arg.getValue(),
-        channel_arg.getValue(), poll_interval_us_arg.getValue());
-    radio_interface.SetTunnelLogsEnabled(enable_tunnel_logs_arg.getValue());
+        config.ce_pin.value(), tunnel_fd,
+        0x55, 0x66,
+        config.channel.value(), config.poll_interval.value());
+    radio_interface.SetTunnelLogsEnabled(config.enable_tunnel_logs.value());
     radio_interface.Run();
   } else if (mode == RadioMode::Secondary) {
     nerfnet::SecondaryRadioInterface radio_interface(
-        ce_pin_arg.getValue(), tunnel_fd,
-        primary_addr_arg.getValue(), secondary_addr_arg.getValue(),
-        channel_arg.getValue());
-    radio_interface.SetTunnelLogsEnabled(enable_tunnel_logs_arg.getValue());
+        config.ce_pin.value(), tunnel_fd,
+        0x55, 0x66,
+        config.channel.value());
+    radio_interface.SetTunnelLogsEnabled(config.enable_tunnel_logs.value());
     radio_interface.Run();
   } else {
     CHECK(false, "Primary or secondary mode must be enabled");

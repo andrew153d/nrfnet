@@ -37,22 +37,22 @@ make install
 cd $SCRIPT_DIR
 
 # Create default configuration directory and file
-CONFIG_DIR="/etc/nrfmesh"
-CONFIG_FILE="$CONFIG_DIR/nrfmesh.conf"
+CONFIG_DIR="/etc/nrfnet"
+CONFIG_FILE="$CONFIG_DIR/nrfnet.conf"
 
 if [ ! -d "$CONFIG_DIR" ]; then
     echo "Creating configuration directory: $CONFIG_DIR"
     sudo mkdir -p "$CONFIG_DIR"
 fi
 
-# Copy the default configuration file to /etc/nrfmesh
+# Copy the default configuration file to /etc/nrfnet
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Copying default configuration file to: $CONFIG_FILE"
-    sudo cp "$SCRIPT_DIR/nrfmesh.conf" "$CONFIG_FILE"
+    sudo cp "$SCRIPT_DIR/nrfnet.conf" "$CONFIG_FILE"
 else
     echo "Configuration file already exists: $CONFIG_FILE"
 fi
 
-rm -rf nrfmesh
+rm -rf nrfnet
 
 echo "Installation complete!"

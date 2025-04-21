@@ -9,6 +9,7 @@
 add_library(util
   string.cc
   time.cc
+  config_parser.cc
 )
 
 target_include_directories(util PUBLIC
