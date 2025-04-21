@@ -186,15 +186,15 @@ int main(int argc, char** argv) {
       "Run this side of the network in primary mode.", false);
   TCLAP::SwitchArg secondary_arg("", "secondary",
       "Run this side of the network in secondary mode.", false);
-  TCLAP::SwitchArg common_arg("", "common",
-      "Run this side of the network in common mode.", false);
+  TCLAP::SwitchArg auto_negotiation_arg("", "auto",
+      "Automatically negotiate the mode", false);
   TCLAP::ValueArg<std::string> tunnel_ip_arg("", "tunnel_ip",
       "The IP address to assign to the tunnel interface.", false, "", "ip",
       cmd);
   TCLAP::ValueArg<std::string> tunnel_ip_mask("", "tunnel_mask",
       "The network mask to use for the tunnel interface.", false,
       "255.255.255.0", "mask", cmd);
-  std::vector<TCLAP::Arg*> xor_args = {&primary_arg, &secondary_arg, &common_arg};
+  std::vector<TCLAP::Arg*> xor_args = {&primary_arg, &secondary_arg, &auto_negotiation_arg};
   cmd.xorAdd(xor_args);
   TCLAP::ValueArg<uint32_t> primary_addr_arg("", "primary_addr",
       "The address to use for the primary side of nerfnet.",
