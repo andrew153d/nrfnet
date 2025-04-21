@@ -41,8 +41,10 @@
 
 // Logging macros for error, warning, info and verbose.
 #define LOGV(fmt, ...) LOG('V', fmt, ##__VA_ARGS__)
-#define LOGI(fmt, ...) LOG('I', fmt, ##__VA_ARGS__)
+#define LOGI(fmt, ...) LOG(' ', fmt, ##__VA_ARGS__)
 #define LOGW(fmt, ...) LOG('W', fmt, ##__VA_ARGS__)
 #define LOGE(fmt, ...) LOG('E', fmt, ##__VA_ARGS__)
+#define LOGS(fmt, ...) \
+  fprintf(stdout, fmt "\n", ##__VA_ARGS__)
 
 #endif  // NERFNET_UTIL_LOG_H_

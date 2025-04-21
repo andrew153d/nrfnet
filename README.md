@@ -12,28 +12,27 @@ determines which system initiates the request to exchange network packets.
 
 This makes the design polled from the primary radio to the secondary radio.
 
-## building
-
-This project uses the cmake build system and tclap for command-line arguments.
-The following packages must be installed:
-
+## Installation Script
+Download the install script
 ```
-sudo apt-get install git cmake build-essential \
-    libtclap-dev
+wget https://raw.githubusercontent.com/andrew153d/nrfmesh/main/install.sh
+sudo chmod +x install.sh
+./install.sh
 ```
 
-Once the required packages are installed, the standard cmake workflow is used:
+## connection
 
-```
-git clone git@github.com:aarossig/nerfnet.git
-cd nerfnet
-mkdir build
-cd build
-cmake ..
-make -j4
-```
+The following table provides the pin connections for the Raspberry Pi to the nRF24L01 module:
 
-Watch for any errors after running cmake to check for mising packages.
+| Pin Name | Pi header number |
+| -------- | ---------------- |
+| GND      | 25               |
+| VCC      | 17               |
+| CE       | 15               |
+| CSN      | 24               |
+| SCK      | 23               |
+| MOSI     | 19               |
+| MISO     | 21               |
 
 ## usage
 

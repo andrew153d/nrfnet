@@ -36,7 +36,7 @@ RadioInterface::RadioInterface(uint16_t ce_pin, int tunnel_fd,
   CHECK(channel < 128, "Channel must be between 0 and 127");
   CHECK(radio_.begin(), "Failed to start NRF24L01");
   radio_.setChannel(channel);
-  radio_.setPALevel(RF24_PA_MAX);
+  radio_.setPALevel(RF24_PA_MIN, false); //low power for now
   radio_.setDataRate(RF24_2MBPS);
   radio_.setAddressWidth(3);
   radio_.setAutoAck(1);
