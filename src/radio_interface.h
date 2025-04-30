@@ -25,7 +25,7 @@
 #include <thread>
 #include <vector>
 
-#include "nerfnet/util/non_copyable.h"
+#include "non_copyable.h"
 
 namespace nerfnet {
 

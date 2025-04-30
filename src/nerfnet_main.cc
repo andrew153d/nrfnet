@@ -23,13 +23,13 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <tclap/CmdLine.h>
 #include <unistd.h>
 
-#include "nerfnet/net/primary_radio_interface.h"
-#include "nerfnet/net/secondary_radio_interface.h"
-#include "nerfnet/util/log.h"
-#include "nerfnet/util/config_parser.h"
+#include "primary_radio_interface.h"
+#include "secondary_radio_interface.h"
+#include "mesh_radio_interface.h"
+#include "log.h"
+#include "config_parser.h"
 
 // A description of the program.
 constexpr char kDescription[] =
@@ -176,7 +176,8 @@ int main(int argc, char** argv) {
 
   RadioMode mode = config.mode.value();
   
-  if(mode == RadioMode::Automatic)
+
+  if(mode == RadioMode::Automatic && false)
   {
     LOGI("Negotiating Radio Roles");
     mode = AutoNegotiateRadioInterface(config.ce_pin.value(), config.channel.value());
@@ -196,6 +197,13 @@ int main(int argc, char** argv) {
   LOGI("tunnel '%s' configured with '%s' mask '%s'",
        config.interface_name.value().c_str(), tunnel_ip.c_str(),
        config.tunnel_netmask.value().c_str());
+
+  nerfnet::MeshRadioInterface radio_interface(
+    config.ce_pin.value(), 0,
+    0x55, 0x66,
+    config.channel.value(), config.poll_interval.value());
+    
+  radio_interface.Run();
 
   if (mode == RadioMode::Primary) {
     nerfnet::PrimaryRadioInterface radio_interface(

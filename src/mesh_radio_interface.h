@@ -14,27 +14,72 @@
  * limitations under the License.
  */
 
-#ifndef NERFNET_NET_PRIMARY_RADIO_INTERFACE_H_
-#define NERFNET_NET_PRIMARY_RADIO_INTERFACE_H_
+#ifndef NERFNET_NET_MESH_RADIO_INTERFACE_H_
+#define NERFNET_NET_MESH_RADIO_INTERFACE_H_
 
 #include <optional>
 
-#include "nerfnet/net/radio_interface.h"
+#include "radio_interface.h"
+#include <vector>
+#include <deque>
+#include <RF24/RF24.h>
+
+
 
 namespace nerfnet {
 
-// The primary mode radio interface.
-class PrimaryRadioInterface : public RadioInterface {
+// The mesh mode radio interface.
+class MeshRadioInterface{
  public:
-  // Setup the primary radio link.
-  PrimaryRadioInterface(uint16_t ce_pin, int tunnel_fd,
-                        uint32_t primary_addr, uint32_t secondary_addr,
-                        uint8_t channel, uint64_t poll_interval_us);
+  // Setup the mesh radio link.
+  MeshRadioInterface(uint16_t ce_pin, int tunnel_fd,
+                     uint32_t primary_addr, uint32_t secondary_addr,
+                     uint8_t channel, uint64_t poll_interval_us);
 
   // Runs the interface.
   void Run();
 
  private:
+  RF24 radio_;
+
+  //radio details
+  uint16_t ce_pin_;
+  uint8_t channel_;
+
+  uint8_t node_id_ = 0;
+
+  const uint32_t discovery_address_ = 0xFFFABABA;
+
+
+  enum class PacketType {
+    Discovery = 0x1F,
+    DiscoverResponse = 0xA5,
+  };
+
+  struct DiscoveryPacket
+  {
+    uint8_t packet_type;
+    uint8_t packet_id;
+    uint8_t packet_length;
+    uint8_t payload[32];
+  };
+
+  struct DataPacket{
+    uint8_t packet_type;
+    uint8_t packet_id;
+    uint8_t payload[29];
+  };
+
+  struct PacketFrame
+  {
+    uint64_t last_time_sent;
+
+  };
+
+  std::deque<std::array<char, 32>> packets_to_send_;
+
+  uint64_t last_send_time_us_;
+
   // The interval between poll operations to the secondary radio.
   const uint64_t poll_interval_us_;
 
@@ -52,8 +97,9 @@ class PrimaryRadioInterface : public RadioInterface {
   // Updates the backoff configuration in the light of a failure.
   void HandleTransactionFailure();
 
+  void Sender();
 };
 
 }  // namespace nerfnet
 
-#endif  // NERFNET_NET_PRIMARY_RADIO_INTERFACE_H_
+#endif  // NERFNET_NET_MESH_RADIO_INTERFACE_H_

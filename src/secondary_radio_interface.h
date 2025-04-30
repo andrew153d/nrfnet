@@ -17,7 +17,7 @@
 #ifndef NERFNET_NET_SECONDARY_RADIO_INTERFACE_H_
 #define NERFNET_NET_SECONDARY_RADIO_INTERFACE_H_
 
-#include "nerfnet/net/radio_interface.h"
+#include "radio_interface.h"
 
 namespace nerfnet {
 

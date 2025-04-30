@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include "nerfnet/net/radio_interface.h"
+#include "radio_interface.h"
 
 #include <unistd.h>
 
-#include "nerfnet/util/log.h"
-#include "nerfnet/util/time.h"
+#include "log.h"
+#include "nrftime.h"
 
 namespace nerfnet {
 

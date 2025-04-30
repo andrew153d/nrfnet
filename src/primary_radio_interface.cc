@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-#include "nerfnet/net/primary_radio_interface.h"
+#include "primary_radio_interface.h"
 
 #include <unistd.h>
 
-#include "nerfnet/util/log.h"
-#include "nerfnet/util/macros.h"
-#include "nerfnet/util/time.h"
+#include "log.h"
+#include "macros.h"
+#include "nrftime.h"
 
 namespace nerfnet {
 

@@ -1,28 +1,32 @@
-################################################################################
-#
-# nerfnet build
-#
-################################################################################
+cmake_minimum_required(VERSION 3.10)
+project(nrfnet)
 
-# Project Settings #############################################################
-
-cmake_minimum_required(VERSION 3.1)
+# Set the C++ standard
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-project(nerfnet)
+# Set the source files
+set(SOURCES
+    src/config_parser.cc
+    src/nerfnet_main.cc
+    src/nrftime.cc
+    src/primary_radio_interface.cc
+    src/radio_interface.cc
+    src/secondary_radio_interface.cc
+    src/mesh_radio_interface.cc
+)
 
-# Dependencies #################################################################
+# Include header directories
+include_directories(src)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(tclap REQUIRED tclap)
+# Add the executable
+add_executable(nrfnet ${SOURCES})
 
-# Subdirectories ###############################################################
+# Link the librf24 shared library
+# Assuming librf24.so is in the root directory
+target_link_libraries(nrfnet PRIVATE ${CMAKE_SOURCE_DIR}/librf24.so)
 
-add_subdirectory(nerfnet)
-
-# Installation #################################################################
-
-install(TARGETS nerfnet
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib)
+# Optionally, set rpath so the executable can find librf24.so at runtime
+set_target_properties(nrfnet PROPERTIES
+    BUILD_RPATH "$ORIGIN"
+)

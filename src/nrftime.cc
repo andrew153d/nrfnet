@@ -14,16 +14,20 @@
  * limitations under the License.
  */
 
-#ifndef NERFNET_UTIL_STRING_H_
-#define NERFNET_UTIL_STRING_H_
+#include "nrftime.h"
 
-#include <string>
+#include <chrono>
+#include <unistd.h>
 
 namespace nerfnet {
 
-// Formats the supplied arguments into a string and returns it.
-std::string StringFormat(const char* format, ...);
+void SleepUs(uint64_t delay) {
+  usleep(delay);
+}
+
+uint64_t TimeNowUs() {
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 }  // namespace nerfnet
-
-#endif  // NERFNET_UTIL_STRING_H_
