@@ -28,6 +28,7 @@
 #include "primary_radio_interface.h"
 #include "secondary_radio_interface.h"
 #include "mesh_radio_interface.h"
+#include "tunnel_interface.h"
 #include "log.h"
 #include "config_parser.h"
 
@@ -175,15 +176,6 @@ int main(int argc, char** argv) {
   config.print();
 
   RadioMode mode = config.mode.value();
-  
-
-  if(mode == RadioMode::Automatic && false)
-  {
-    LOGI("Negotiating Radio Roles");
-    mode = AutoNegotiateRadioInterface(config.ce_pin.value(), config.channel.value());
-    CHECK(mode != RadioMode::NotSet, "Failed to negotiate radio roles");
-    LOGI("Negotiated Radio Roles: %s", mode == RadioMode::Primary ? "Primary" : "Secondary");
-  }
 
   std::string tunnel_ip = config.tunnel_ip_address.value();
 
@@ -198,12 +190,24 @@ int main(int argc, char** argv) {
        config.interface_name.value().c_str(), tunnel_ip.c_str(),
        config.tunnel_netmask.value().c_str());
 
-  nerfnet::MeshRadioInterface radio_interface(
+  
+    
+
+  if(mode == RadioMode::Mesh) {
+    nerfnet::MeshRadioInterface radio_interface(
     config.ce_pin.value(), 0,
     0x55, 0x66,
     config.channel.value(), config.poll_interval.value());
     
-  radio_interface.Run();
+    nerfnet::TunnelInterface tunnel_interface(radio_interface, tunnel_fd);
+    tunnel_interface.Run();
+  } else if(mode == RadioMode::Automatic)
+  {
+    LOGI("Negotiating Radio Roles");
+    mode = AutoNegotiateRadioInterface(config.ce_pin.value(), config.channel.value());
+    CHECK(mode != RadioMode::NotSet, "Failed to negotiate radio roles");
+    LOGI("Negotiated Radio Roles: %s", mode == RadioMode::Primary ? "Primary" : "Secondary");
+  }
 
   if (mode == RadioMode::Primary) {
     nerfnet::PrimaryRadioInterface radio_interface(

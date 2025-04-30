@@ -119,8 +119,9 @@ namespace nerfnet
 
   void MeshRadioInterface::Run()
   {
-    while (1)
-    {
+      DiscoveryTask();
+      Sender();
+
       if (radio_.available())
       {
         GenericPacket received_packet;
@@ -129,7 +130,7 @@ namespace nerfnet
         if (!ValidateChecksum(received_packet))
         {
           LOGE("Invalid checksum");
-          continue;
+          return;
         }
         switch ((PacketType)received_packet.packet_type)
         {
@@ -151,9 +152,8 @@ namespace nerfnet
         }
       }
 
-      DiscoveryTask();
-      Sender();
-    }
+      
+    
   }
 
   void MeshRadioInterface::DiscoveryTask()
@@ -337,5 +337,15 @@ namespace nerfnet
     checksum = checksum % (1 << checksum_bit_length);
     return checksum;
   };
+
+  void MeshRadioInterface::SetTunnelCallback(DataCallback callback) {
+      tunnel_callback_ = std::move(callback);
+  }
+
+  void MeshRadioInterface::NotifyTunnel(const std::vector<uint8_t>& data) {
+      if (tunnel_callback_) {
+          tunnel_callback_(data);
+      }
+  }
 
 } // namespace nerfnet

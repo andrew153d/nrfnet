@@ -14,6 +14,7 @@ set(SOURCES
     src/radio_interface.cc
     src/secondary_radio_interface.cc
     src/mesh_radio_interface.cc
+    src/tunnel_interface.cc
 )
 
 # Include header directories

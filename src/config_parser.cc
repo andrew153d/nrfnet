@@ -49,6 +49,8 @@ void ConfigParser::load() {
             mode = RadioMode::Secondary;
         } else if(mode_string=="automatic") {
             mode = RadioMode::Automatic;
+        } else if(mode_string=="mesh") {
+            mode = RadioMode::Mesh;
         } else {
             mode = RadioMode::NotSet;
         }

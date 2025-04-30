@@ -13,6 +13,7 @@ enum class RadioMode
     Primary,
     Secondary,
     Automatic,
+    Mesh
 };
 
 class ConfigParser
