@@ -20,6 +20,14 @@
 #include <cstdio>
 #include <cstdlib>
 
+// ANSI color codes
+#define COLOR_RESET   "\033[0m"
+#define COLOR_RED     "\033[31m"
+#define COLOR_GREEN   "\033[32m"
+#define COLOR_YELLOW  "\033[33m"
+#define COLOR_CYAN    "\033[36m"
+#define COLOR_WHITE   "\033[37m"
+
 // Check a condition and quit if it evaluates to false with an error log.
 #define CHECK(cond, fmt, ...)                               \
     do {                                                    \
@@ -35,14 +43,14 @@
 
 // TODO(aarossig): Allow disabling LOGV at compile time.
 
-// Common logging macro.
-#define LOG(code, fmt, ...) \
-  fprintf(stdout, "%c: " fmt "\n", code, ##__VA_ARGS__)
+// Common logging macro with color support.
+#define LOG(color, fmt, ...) \
+  fprintf(stdout, "%s" fmt "%s\n", color, ##__VA_ARGS__, COLOR_RESET)
 
-// Logging macros for error, warning, info and verbose.
-#define LOGV(fmt, ...) LOG('V', fmt, ##__VA_ARGS__)
-#define LOGI(fmt, ...) LOG('I', fmt, ##__VA_ARGS__)
-#define LOGW(fmt, ...) LOG('W', fmt, ##__VA_ARGS__)
-#define LOGE(fmt, ...) LOG('E', fmt, ##__VA_ARGS__)
+// Logging macros for error, warning, info, and verbose with colors.
+#define LOGV(fmt, ...) LOG(COLOR_CYAN, fmt, ##__VA_ARGS__)
+#define LOGI(fmt, ...) LOG(COLOR_WHITE, fmt, ##__VA_ARGS__)
+#define LOGW(fmt, ...) LOG(COLOR_YELLOW, fmt, ##__VA_ARGS__)
+#define LOGE(fmt, ...) LOG(COLOR_RED, fmt, ##__VA_ARGS__)
 
 #endif  // NERFNET_UTIL_LOG_H_

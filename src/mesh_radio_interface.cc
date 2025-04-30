@@ -21,6 +21,7 @@
 #include "log.h"
 #include "macros.h"
 #include "nrftime.h"
+#include <algorithm>
 
 namespace nerfnet
 {
@@ -36,8 +37,36 @@ namespace nerfnet
         ce_pin_(ce_pin),
         channel_(channel)
   {
-    last_send_time_us_ = 0;
-    LOGI("Starting mesh radio interface");
+    CHECK(channel_ < 128, "Channel must be between 0 and 127");
+    CHECK(radio_.begin(), "Failed to start NRF24L01");
+    radio_.setChannel(channel_);
+    radio_.setPALevel(RF24_PA_MAX);
+    radio_.setDataRate(RF24_2MBPS);
+    radio_.setAddressWidth(3);
+    radio_.setAutoAck(1);
+    radio_.setRetries(0, 15);
+    radio_.setCRCLength(RF24_CRC_8);
+    CHECK(radio_.isChipConnected(), "NRF24L01 is unavailable");
+
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    node_id_ = min_discovery_node_id_ + (std::rand() % (256 - min_discovery_node_id_));
+
+    LOGI("Starting mesh radio interface with node id %d | 0x%X", node_id_, node_id_);
+
+    // initialize the pipe addresses
+    for (int i = 0; i < 5; i++)
+    {
+      reading_pipe_addresses_[i] = 0;
+    }
+
+    reading_pipe_addresses_[0] = base_address_ + discovery_address_offset_;
+    reading_pipe_addresses_[1] = base_address_ + (node_id_ << 8) + 0x01;
+
+    LOGI("Discovery address: 0x%X", reading_pipe_addresses_[0]);
+    LOGI("Secondary address: 0x%X", reading_pipe_addresses_[1]);
+
+    radio_.openReadingPipe(0, reading_pipe_addresses_[0]);
+    radio_.openReadingPipe(1, reading_pipe_addresses_[1]);
   }
 
   // Method of operation
@@ -52,54 +81,207 @@ namespace nerfnet
 
   */
 
+  void MeshRadioInterface::SetNodeId(uint8_t node_id)
+  {
+    radio_.stopListening();
+    SleepUs(1000);
+    node_id_ = node_id;
+    writing_pipe_address_ = 0;
+    for (int i = 1; i < 6; i++)
+    {
+      reading_pipe_addresses_[i] = base_address_ + (node_id_ << 8) + i;
+      radio_.openReadingPipe(i, reading_pipe_addresses_[i]);
+      LOGI("Opened reading pipe %d: 0x%X", i, reading_pipe_addresses_[i]);
+    }
+    SleepUs(1000);
+    radio_.startListening();
+  }
+
+  void MeshRadioInterface::SetRadioState(RadioState state)
+  {
+    if (state == Listening && radio_state_ == Discovery)
+    {
+      // add some dummy data to the queue to make sure we send a packet
+      PacketFrame packet;
+      packet.remote_pipe_address = base_address_ + ((*neighbor_node_ids_.begin()) << 8) + 0x01; // send to pipe one
+      DataPacket *data_packet = reinterpret_cast<DataPacket *>(&packet.data[0]);
+      std::memset(data_packet, 0, sizeof(DataPacket));
+      data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
+      data_packet->source_id = node_id_;
+      InsertChecksum(*reinterpret_cast<GenericPacket *>(data_packet));
+      for (int i = 0; i < 3; i++)
+      {
+        packets_to_send_.emplace_back(packet);
+      }
+    }
+    radio_state_ = state;
+  }
+
   void MeshRadioInterface::Run()
   {
-    uint32_t discovery_address = 0xFFFABABA;
-
-    CHECK(channel_ < 128, "Channel must be between 0 and 127");
-    CHECK(radio_.begin(), "Failed to start NRF24L01");
-    radio_.setChannel(channel_);
-    radio_.setPALevel(RF24_PA_MAX);
-    radio_.setDataRate(RF24_2MBPS);
-    radio_.setAddressWidth(3);
-    radio_.setAutoAck(1);
-    radio_.setRetries(0, 15);
-    radio_.setCRCLength(RF24_CRC_8);
-    CHECK(radio_.isChipConnected(), "NRF24L01 is unavailable");
-
-    radio_.openWritingPipe(discovery_address);
-    radio_.openReadingPipe(1, discovery_address);
-
-    // Transmit discovery packet
-    radio_.startListening();
-
-    // if (request.size() > kMaxPacketSize) {
-    //   LOGE("Request is too large (%zu vs %zu)", request.size(), kMaxPacketSize);
-    // }
-
     while (1)
     {
-      if(TimeNowUs() - last_send_time_us_ > 3000000)
+      if (radio_.available())
       {
-        last_send_time_us_ = TimeNowUs();
-        std::array<char, 32> discovery_packet = {static_cast<char>(0x1F), static_cast<char>(0x00), static_cast<char>(0x00)};
-        packets_to_send_.emplace_back(discovery_packet);
+        GenericPacket received_packet;
+        std::memset(&received_packet, 0, sizeof(received_packet));
+        radio_.read(reinterpret_cast<uint8_t *>(&received_packet), sizeof(received_packet));
+        if (!ValidateChecksum(received_packet))
+        {
+          LOGE("Invalid checksum");
+          continue;
+        }
+        switch ((PacketType)received_packet.packet_type)
+        {
+        case PacketType::Discovery:
+          HandleDiscoveryPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+          break;
+        case PacketType::DiscoverResponse:
+          HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
+          break;
+        case PacketType::Data:
+        {
+          DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
+          LOGI("Received data packet from 0x%X", data_packet->source_id);
+          break;
+        }
+        default:
+          LOGE("Unknown packet type: %d", received_packet.packet_type);
+          break;
+        }
+      }
 
-        LOGI("Added new discovery packet to send queue");
-      }
-      if(radio_.available())
-      {
-        std::vector<uint8_t> response(32);
-        radio_.read(response.data(), response.size());
-        LOGI("Received %d bytes from the tunnel", response.size());
-      }
+      DiscoveryTask();
       Sender();
     }
   }
 
+  void MeshRadioInterface::DiscoveryTask()
+  {
+    if (TimeNowUs() - discovery_message_timer_ > discovery_message_rate_us_ && radio_state_ == Discovery)
+    {
+      discovery_message_timer_ = TimeNowUs();
+
+      if (number_of_discovery_messages_sent_ > max_discovery_messages_ && discovery_ack_received_time_us_ == 0)
+      {
+        LOGI("No neighbors found, setting up node id to 0");
+
+        SetNodeId(0);
+
+        radio_state_ = Listening;
+        return;
+      }
+
+      PacketFrame packet;
+      packet.remote_pipe_address = reading_pipe_addresses_[0]; // pipe 0 is used for discovery
+      DiscoveryPacket *discovery_packet = reinterpret_cast<DiscoveryPacket *>(&packet.data[0]);
+      std::memset(discovery_packet, 0, sizeof(DiscoveryPacket));
+      discovery_packet->packet_type = static_cast<uint8_t>(PacketType::Discovery);
+      discovery_packet->source_node_id = node_id_;
+      InsertChecksum(*reinterpret_cast<GenericPacket *>(discovery_packet));
+      packets_to_send_.emplace_back(packet);
+      number_of_discovery_messages_sent_++;
+    }
+
+    if (discovery_ack_received_time_us_ != 0)
+    {
+      if (TimeNowUs() - discovery_ack_received_time_us_ > discovery_ack_timeout_us_)
+      {
+        LOGI("Done listening for neighbors");
+        // Look for next available node id to assign, making sure to not assign one in the neighbor list
+        for (int i = 0; i < min_discovery_node_id_; i++)
+        {
+          if (std::find(neighbor_node_ids_.begin(), neighbor_node_ids_.end(), i) == neighbor_node_ids_.end())
+          {
+            SetNodeId(i);
+            LOGI("Setting up node id to 0x%X", node_id_);
+            discovery_ack_received_time_us_ = 0;
+            SetRadioState(Listening);
+            return;
+          }
+        }
+
+        CHECK(false, "No available node ids to assign");
+      }
+    }
+  }
+
+  void MeshRadioInterface::HandleDiscoveryPacket(const DiscoveryPacket &packet)
+  {
+    LOGI("Received discovery packet from 0x%X", packet.source_node_id);
+
+    if (radio_state_ == Discovery)
+    {
+      if (packet.source_node_id == node_id_)
+      {
+        LOGI("Received discovery from self, ignoring");
+        return;
+      }
+      if (packet.source_node_id < node_id_)
+      {
+        LOGI("Received discovery from node 0x%X, but this node is lower than me, resetting discovery counter", packet.source_node_id);
+        discovery_message_timer_ = 0;
+        number_of_discovery_messages_sent_ = 0;
+        return;
+      }
+      return;
+    }
+
+    // Send back a packets with neightbor node ids, split them up between multiple packets if needed
+    PacketFrame packet_frame;
+    packet_frame.remote_pipe_address = base_address_ + (packet.source_node_id << 8) + 0x01; // send to pipe one
+    DiscoveryAckPacket *ack_packet = reinterpret_cast<DiscoveryAckPacket *>(&packet_frame.data[0]);
+    std::memset(ack_packet, 0, sizeof(DiscoveryAckPacket));
+    ack_packet->packet_type = static_cast<uint8_t>(PacketType::DiscoverResponse);
+    ack_packet->source_node_id = node_id_;
+    ack_packet->num_valid_neighbors = neighbor_node_ids_.size();
+    int i = 0;
+    for (auto it = neighbor_node_ids_.begin(); it != neighbor_node_ids_.end(); ++it)
+    {
+      if (i < 29)
+      {
+        ack_packet->neighbors[i] = *it;
+        i++;
+      }
+      else
+      {
+        LOGW("Too many neighbors to send in one packet, splitting up");
+        break;
+      }
+    }
+    InsertChecksum(*reinterpret_cast<GenericPacket *>(ack_packet));
+    LOGI("Sending discovery ack packet to 0x%X", packet_frame.remote_pipe_address);
+    packets_to_send_.emplace_back(packet_frame);
+    return;
+  }
+
+  void MeshRadioInterface::HandleDiscoveryAckPacket(const DiscoveryAckPacket &packet)
+  {
+    LOGI("Received %d neighbors from 0x%X", packet.num_valid_neighbors, packet.source_node_id);
+
+    if (discovery_ack_received_time_us_ == 0)
+    {
+      discovery_ack_received_time_us_ = TimeNowUs();
+    }
+
+    // Add the node ids to the neighbor list
+    neighbor_node_ids_.insert(packet.source_node_id);
+    for (int i = 0; i < packet.num_valid_neighbors; i++)
+    {
+      neighbor_node_ids_.insert(packet.neighbors[i]);
+    }
+
+    return;
+  }
+
   void MeshRadioInterface::Sender()
   {
-    if(packets_to_send_.empty())
+    if (packets_to_send_.empty())
+    {
+      return;
+    }
+
+    if (TimeNowUs() - last_listen_time_us_ < min_listen_time_us_)
     {
       return;
     }
@@ -108,7 +290,15 @@ namespace nerfnet
 
     auto element = packets_to_send_.front();
 
-    if (!radio_.write(element.data(), element.size()))
+    if (element.remote_pipe_address != writing_pipe_address_)
+    {
+      writing_pipe_address_ = element.remote_pipe_address;
+      radio_.openWritingPipe(writing_pipe_address_);
+      LOGI("Opened writing pipe: 0x%X", writing_pipe_address_);
+      SleepUs(150);
+    }
+
+    if (!radio_.write(element.data, 32))
     {
       LOGE("Failed to write request");
     }
@@ -120,21 +310,32 @@ namespace nerfnet
 
     packets_to_send_.pop_front();
     radio_.startListening();
+    last_listen_time_us_ = TimeNowUs();
   }
 
-  bool MeshRadioInterface::ConnectionReset()
+  void MeshRadioInterface::InsertChecksum(GenericPacket &packet)
   {
-    return false;
+    packet.checksum = CalculateChecksum(packet);
   }
 
-  bool MeshRadioInterface::PerformTunnelTransfer()
+  bool MeshRadioInterface::ValidateChecksum(GenericPacket &packet)
   {
-
-    return true;
+    return packet.checksum == CalculateChecksum(packet);
   }
 
-  void MeshRadioInterface::HandleTransactionFailure()
+  uint8_t MeshRadioInterface::CalculateChecksum(GenericPacket &packet)
   {
-  }
+    int checksum_bit_length = 4;
+    uint8_t *packet_ptr = reinterpret_cast<uint8_t *>(&packet);
+    int checksum = 0;
+    checksum += (packet_ptr[0] >> 4) & 0x0F;
+    for (int i = 1; i < sizeof(GenericPacket); i++)
+    {
+      checksum += packet_ptr[i] & 0x0F;
+      checksum += (packet_ptr[i] >> 4) & 0x0F;
+    }
+    checksum = checksum % (1 << checksum_bit_length);
+    return checksum;
+  };
 
 } // namespace nerfnet
