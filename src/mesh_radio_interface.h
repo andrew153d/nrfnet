@@ -18,6 +18,7 @@
 #define NERFNET_NET_MESH_RADIO_INTERFACE_H_
 
 #include <optional>
+#include <functional>
 
 #include "radio_interface.h"
 #include <vector>
@@ -27,6 +28,7 @@
 
 namespace nerfnet
 {
+  using DataCallback = std::function<void(const std::vector<uint8_t> &)>;
 
   // The mesh mode radio interface.
   class MeshRadioInterface
@@ -36,6 +38,8 @@ namespace nerfnet
     MeshRadioInterface(uint16_t ce_pin, int tunnel_fd,
                        uint32_t primary_addr, uint32_t secondary_addr,
                        uint8_t channel, uint64_t poll_interval_us);
+
+    void SetTunnelCallback(DataCallback callback);
 
     // Runs the interface
     void Run();
@@ -174,9 +178,10 @@ namespace nerfnet
     uint64_t current_poll_interval_us_;
     bool connection_reset_required_;
 
+    void NotifyTunnel(const std::vector<uint8_t> &data);
+
     void SetNodeId(uint8_t node_id);
     void SetRadioState(RadioState state);
-
 
     void Sender();
 
@@ -187,6 +192,8 @@ namespace nerfnet
     void InsertChecksum(GenericPacket &packet);
     bool ValidateChecksum(GenericPacket &packet);
     uint8_t CalculateChecksum(GenericPacket &packet);
+
+    DataCallback tunnel_callback_;
   };
 
 } // namespace nerfnet
