@@ -27,6 +27,8 @@ void SleepUs(uint64_t delay);
 // Returns the current time in microseconds.
 uint64_t TimeNowUs();
 
+uint64_t TimeNowS();
+
 }  // namespace nerfnet
 
 #endif  // NERFNET_UTIL_TIME_H_

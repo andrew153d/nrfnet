@@ -19,6 +19,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <string>
+#include <utility>
+#include "nrftime.h"
 
 // ANSI color codes
 #define COLOR_RESET   "\033[0m"
@@ -28,6 +32,7 @@
 #define COLOR_CYAN    "\033[36m"
 #define COLOR_WHITE   "\033[37m"
 
+#define NUM_LINES_LOGGED 15
 
 // Forward declaration for table printing
 struct Stats;
@@ -39,7 +44,7 @@ struct Stats
   uint32_t packets_received = 0;
   uint32_t fragments_sent = 0;
   uint32_t fragments_received = 0;
-
+  std::deque<std::string> messages;
   // Call this after updating any stat
   void update_and_print() const {
     print_stats_table(this);
@@ -55,7 +60,7 @@ extern Stats stats;
 inline void print_stats_table(const Stats* stats) {
   CLEAR_SCREEN();
   if (!stats) return;
-  printf(COLOR_GREEN "=============== Stats Table ==============\n" COLOR_RESET);
+  printf(COLOR_GREEN "=============== Stats Table ==============" COLOR_RESET "\n");
   printf(COLOR_WHITE "| %-22s | %-13s |\n", "Stat", "Value");
   printf("|------------------------|---------------|\n");
   printf("| %-22s | %-13u |\n", "Packets Sent", stats->packets_sent);
@@ -63,6 +68,10 @@ inline void print_stats_table(const Stats* stats) {
   printf("| %-22s | %-13u |\n", "Fragments Sent", stats->fragments_sent);
   printf("| %-22s | %-13u |\n", "Fragments Received", stats->fragments_received);
   printf(COLOR_GREEN "==========================================\n" COLOR_RESET);
+  //printf(COLOR_GREEN "Messages:\n" COLOR_RESET);
+  for (const auto& msg : stats->messages) {
+    printf(COLOR_WHITE "%s\n" COLOR_RESET, msg.c_str());
+  }
 }
 
 // Helper macros to update stats and print table
@@ -95,9 +104,18 @@ inline void print_stats_table(const Stats* stats) {
 
 // TODO(aarossig): Allow disabling LOGV at compile time.
 
-// Common logging macro with color support.
+// Modify the LOG macro to add formatted messages to the deque
 #define LOG(color, fmt, ...) \
-  fprintf(stdout, "%s" fmt "%s\n", color, ##__VA_ARGS__, COLOR_RESET)
+  do { \
+    if (stats.messages.size() >= NUM_LINES_LOGGED) { \
+      stats.messages.pop_front(); \
+    } \
+    char buffer[256]; \
+    snprintf(buffer, sizeof(buffer), fmt, ##__VA_ARGS__); \
+    std::string colored_msg = std::string(color) + buffer + COLOR_RESET; \
+    stats.messages.push_back(colored_msg); \
+    print_stats_table(&stats); \
+  } while (0)
 
 // Logging macros for error, warning, info, and verbose with colors.
 #define LOGV(fmt, ...) LOG(COLOR_CYAN, fmt, ##__VA_ARGS__)

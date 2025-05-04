@@ -30,4 +30,8 @@ uint64_t TimeNowUs() {
             std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+uint64_t TimeNowS() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+  }
 }  // namespace nerfnet
