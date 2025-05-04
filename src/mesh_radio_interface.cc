@@ -37,15 +37,20 @@ namespace nerfnet
         ce_pin_(ce_pin),
         channel_(channel)
   {
+
     CHECK(channel_ < 128, "Channel must be between 0 and 127");
     CHECK(radio_.begin(), "Failed to start NRF24L01");
+
     radio_.setChannel(channel_);
     radio_.setPALevel(RF24_PA_MAX);
     radio_.setDataRate(RF24_2MBPS);
     radio_.setAddressWidth(3);
-    radio_.setAutoAck(1);
-    radio_.setRetries(0, 15);
+    radio_.enableDynamicPayloads();
+    radio_.enableAckPayload();
+    radio_.setAutoAck(false);
+    radio_.setRetries(0, 0);
     radio_.setCRCLength(RF24_CRC_8);
+
     CHECK(radio_.isChipConnected(), "NRF24L01 is unavailable");
 
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
@@ -53,7 +58,6 @@ namespace nerfnet
 
     LOGI("Starting mesh radio interface with node id %d | 0x%X", node_id_, node_id_);
 
-    // initialize the pipe addresses
     for (int i = 0; i < 5; i++)
     {
       reading_pipe_addresses_[i] = 0;
@@ -114,7 +118,7 @@ namespace nerfnet
     DiscoveryTask();
     Sender();
 
-    if (radio_.available())
+    while (radio_.available())
     {
       GenericPacket received_packet;
       std::memset(&received_packet, 0, sizeof(received_packet));
@@ -135,9 +139,9 @@ namespace nerfnet
       case PacketType::Data:
       {
         DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
-        //LOGI("Received data packet with %zu bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
-        // LOGI("First few bytes of packet: %02X %02X %02X %02X %02X", 
-        // data_packet->raw_data[0], data_packet->raw_data[1], data_packet->raw_data[2], data_packet->raw_data[3], data_packet->raw_data[4]);
+        // LOGI("Received data packet with %zu bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
+        //  LOGI("First few bytes of packet: %02X %02X %02X %02X %02X",
+        //  data_packet->raw_data[0], data_packet->raw_data[1], data_packet->raw_data[2], data_packet->raw_data[3], data_packet->raw_data[4]);
         SendUpstream(DataPacketToVector(*data_packet));
         break;
       }
@@ -298,38 +302,60 @@ namespace nerfnet
   void MeshRadioInterface::Sender()
   {
     if (packets_to_send_.empty())
-    {
       return;
-    }
-
     if (TimeNowUs() - last_listen_time_us_ < min_listen_time_us_)
-    {
       return;
-    }
 
     radio_.stopListening();
 
-    auto element = packets_to_send_.front();
+    std::optional<PacketFrame> packet1 = std::nullopt;
+    std::optional<PacketFrame> packet2 = std::nullopt;
+    std::optional<PacketFrame> packet3 = std::nullopt;
 
-    if (element.remote_pipe_address != writing_pipe_address_)
+    if (!packets_to_send_.empty())
     {
-      writing_pipe_address_ = element.remote_pipe_address;
+      packet1 = packets_to_send_.front();
+      packets_to_send_.pop_front();
+    }
+    if (!packets_to_send_.empty() && packets_to_send_.front().remote_pipe_address == packet1->remote_pipe_address)
+    {
+      packet2 = packets_to_send_.front();
+      packets_to_send_.pop_front();
+    }
+    if (!packets_to_send_.empty() && packets_to_send_.front().remote_pipe_address == packet1->remote_pipe_address)
+    {
+      packet3 = packets_to_send_.front();
+      packets_to_send_.pop_front();
+    }
+
+    if (!packet1 && !packet2 && !packet3)
+    {
+      radio_.startListening();
+      last_listen_time_us_ = TimeNowUs();
+      return;
+    }
+
+    if (packet1->remote_pipe_address != writing_pipe_address_)
+    {
+      writing_pipe_address_ = packet1->remote_pipe_address;
       radio_.openWritingPipe(writing_pipe_address_);
       LOGI("Opened writing pipe: 0x%X", writing_pipe_address_);
-      SleepUs(150);
     }
 
-    if (!radio_.write(element.data, 32))
+    radio_.flush_tx();
+
+    if (packet1)
+      radio_.writeFast(packet1->data, 32);
+    if (packet2)
+      radio_.writeFast(packet2->data, 32);
+    if (packet3)
+      radio_.writeFast(packet3->data, 32);
+
+    if (!radio_.txStandBy(100))
     {
-      LOGE("Failed to write request");
+      LOGE("Failed to write packet (timeout)");
     }
 
-    while (!radio_.txStandBy())
-    {
-      LOGI("Waiting for transmit standby");
-    }
-
-    packets_to_send_.pop_front();
     radio_.startListening();
     last_listen_time_us_ = TimeNowUs();
   }
@@ -349,7 +375,7 @@ namespace nerfnet
       // data_packet->source_id = node_id_;
       InsertChecksum(*reinterpret_cast<GenericPacket *>(data_packet));
       // LOGI("Packet: %d bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
-      // LOGI("First few bytes of packet: %02X %02X %02X %02X %02X", 
+      // LOGI("First few bytes of packet: %02X %02X %02X %02X %02X",
       //   packet.data[0], packet.data[1], packet.data[2], packet.data[3], packet.data[4]);
       packets_to_send_.emplace_back(packet);
     }
