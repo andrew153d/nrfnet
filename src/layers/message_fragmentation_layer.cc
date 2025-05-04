@@ -54,7 +54,7 @@ void MessageFragmentationLayer::ReceiveFromUpstream(const std::vector<uint8_t> &
         std::memcpy(packet.payload, payload.data(), packet_size);
         
         packet.valid_bytes = packet_size;
-
+        packet.packet_type = static_cast<uint8_t>(PacketType::Data);
         if(i == number_of_packets - 1) {
             packet.final_packet = true;
         } else {

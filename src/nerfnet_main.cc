@@ -32,7 +32,7 @@
 #include "log.h"
 #include "config_parser.h"
 #include "message_fragmentation_layer.h"
-
+#include "ack_handling_layer.h"
 // A description of the program.
 constexpr char kDescription[] =
     "A tool for creating a network tunnel over cheap NRF24L01 radios.";
@@ -215,15 +215,19 @@ int main(int argc, char **argv)
 
     MessageFragmentationLayer fragmentation_layer;
 
+    AckLayer ack_layer(1);
+    //ack_layer.Enable(false);
     nerfnet::MeshRadioInterface radio_interface(
         config.ce_pin.value(), 0,
         0x55, 0x66,
         config.channel.value(), config.poll_interval.value());
 
     tunnel_interface.SetDownstreamLayer(&fragmentation_layer);
-    fragmentation_layer.SetDownstreamLayer(&radio_interface);
+    fragmentation_layer.SetDownstreamLayer(&ack_layer);
+    ack_layer.SetDownstreamLayer(&radio_interface);
     radio_interface.SetDownstreamLayer(nullptr); // Bottom Layer
-    radio_interface.SetUpstreamLayer(&fragmentation_layer);
+    radio_interface.SetUpstreamLayer(&ack_layer);
+    ack_layer.SetUpstreamLayer(&fragmentation_layer);
     fragmentation_layer.SetUpstreamLayer(&tunnel_interface);
     tunnel_interface.SetUpstreamLayer(nullptr); // Top Layer
 
@@ -231,6 +235,7 @@ int main(int argc, char **argv)
     while (1)
     {
       tunnel_interface.Run();
+      ack_layer.Run();
       radio_interface.Run();
     }
   }

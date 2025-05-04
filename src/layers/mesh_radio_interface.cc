@@ -376,7 +376,9 @@ namespace nerfnet
       packet.remote_pipe_address = base_address_ + ((*neighbor_node_ids_.begin()) << 8) + 0x01; // send to pipe one
       DataPacket *data_packet = reinterpret_cast<DataPacket *>(&packet.data[0]);
       *data_packet = outgoing_packet;
-      data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
+      CHECK(data_packet->packet_type == (uint8_t)PacketType::Data || data_packet->packet_type == (uint8_t)PacketType::DataAck,
+      "Type must be data of ack data");
+      //data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
       // data_packet->source_id = node_id_;
       InsertChecksum(*reinterpret_cast<GenericPacket *>(data_packet));
       // LOGI("Packet: %d bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);

@@ -7,8 +7,8 @@
 // Define message types and structures here
 #define PACKET_SIZE 32
 
-#define PACKET_HEADER_SIZE 2
-#define PACKET_PAYLOAD_SIZE 30
+#define PACKET_HEADER_SIZE 3
+#define PACKET_PAYLOAD_SIZE 29
 static_assert(PACKET_HEADER_SIZE + PACKET_PAYLOAD_SIZE == PACKET_SIZE, "Header plus payload size must be 32 bytes");
 
 #define PACKET_CHECKSUM_SIZE_BITS 4
@@ -34,6 +34,7 @@ union DataPacket
         uint8_t valid_bytes : PACKET_VALID_BYTES_BITS;
         bool final_packet : FINAL_PACKET_SIZE_BITS;
         uint8_t padding : 2;
+        uint8_t number;
         uint8_t payload[PACKET_PAYLOAD_SIZE];
     };
     uint8_t raw_data[PACKET_SIZE];

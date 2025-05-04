@@ -79,7 +79,7 @@ namespace nerfnet
 #pragma endregion
 
     // The minimum time the radio will be in a listening state
-    const uint64_t min_listen_time_us_ = 1000; // 4ms
+    const uint64_t min_listen_time_us_ = 4000; // 4ms
 
     // The last time the radio was put into a listening state
     uint64_t last_listen_time_us_ = 0;

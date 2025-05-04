@@ -1,37 +1,40 @@
-#ifndef ACK_HANDLING_LAYER_H
-#define ACK_HANDLING_LAYER_H
+#ifndef ACK_LAYER_H
+#define ACK_LAYER_H
 
 #include <vector>
 #include <cstdint>
 #include <unordered_map>
+#include <functional>
 #include "ILayer.h"
-
-class AckHandlingLayer : public ILayer {
+#include "message_definitions.h"
+// Responsible for splitting up messages into packets for transmission
+class AckLayer : public ILayer{
 public:
-    AckHandlingLayer(ILayer* upstream, ILayer* downstream);
+    AckLayer(uint32_t packet_queue_size);
+    
+    void Run();
 
-    // Sends a message and waits for an acknowledgment
-    void SendMessageWithAck(const std::vector<uint8_t>& message);
+    void ReceiveFromDownstream(const std::vector<uint8_t>& data) override;
+    void ReceiveFromUpstream(const std::vector<uint8_t>& data) override;
 
-    // Processes a received acknowledgment
-    void ProcessAck(const std::vector<uint8_t>& ack);
-
-    // Sets the callback to notify when a message is acknowledged
-    void SetAckCallback(std::function<void(uint32_t)> callback);
-
+    void Enable(bool enabled)
+    {
+        enabled_ = enabled;
+    }
 private:
-    struct PendingMessage {
-        std::vector<uint8_t> message;
-        uint32_t message_id;
-        size_t retry_count;
+    uint32_t max_number_of_packets_ = 1;
+    bool enabled_ = true;
+    struct AckPacket
+    {
+        DataPacket packet;
+        uint64_t last_time_sent_;
+        uint32_t times_sent_;
     };
 
-    std::unordered_map<uint32_t, PendingMessage> pending_messages_;
-    uint32_t GenerateMessageId();
+    std::deque<DataPacket> fragmented_packets_;
+    std::vector<AckPacket> pending_packets_;
 
-    ILayer* upstream_;
-    ILayer* downstream_;
-    std::function<void(uint32_t)> ack_callback_;
+    uint8_t packet_number_ = 0;
 };
 
-#endif // ACK_HANDLING_LAYER_H
+#endif // ACK_LAYER_H

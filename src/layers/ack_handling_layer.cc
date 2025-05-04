@@ -1,51 +1,114 @@
 #include "ack_handling_layer.h"
+#include <cstring>
 #include <iostream>
-#include <chrono>
-#include <thread>
+#include "message_definitions.h"
+#include <cmath>
+#include "nrftime.h"
+// #include <cstdlib>
+// #include <ctime>
 
-AckHandlingLayer::AckHandlingLayer(ILayer* upstream, ILayer* downstream)
-    : upstream_(upstream), downstream_(downstream) {}
-
-void AckHandlingLayer::SendMessageWithAck(const std::vector<uint8_t>& message) {
-    uint32_t message_id = GenerateMessageId();
-    PendingMessage pending_message = {message, message_id, 0};
-    pending_messages_[message_id] = pending_message;
-
-    // Simulate sending the message downstream
-    std::vector<uint8_t> packet = message;
-    packet.insert(packet.begin(), static_cast<uint8_t>(message_id & 0xFF)); // Add message ID
-    //downstream_->Send(packet);
-
-    // Retry logic (simplified for demonstration)
-    while (pending_messages_.find(message_id) != pending_messages_.end() && pending_message.retry_count < 3) {
-        std::this_thread::sleep_for(std::chrono::seconds(1)); // Wait before retrying
-        //downstream_->Send(packet);
-        pending_message.retry_count++;
-    }
-
-    if (pending_messages_.find(message_id) != pending_messages_.end()) {
-        std::cerr << "Message ID " << message_id << " failed to be acknowledged after retries." << std::endl;
-        pending_messages_.erase(message_id);
-    }
+AckLayer::AckLayer(uint32_t packet_queue_size)
+{
+    max_number_of_packets_ = packet_queue_size;
+    // Initialize the random number generator
+    std::srand(static_cast<unsigned int>(nerfnet::TimeNowUs()));
+    packet_number_ = static_cast<uint8_t>(std::rand() % 256);
+    LOGI("AckLayer initialized with packet number: %d", packet_number_);
 }
 
-void AckHandlingLayer::ProcessAck(const std::vector<uint8_t>& ack) {
-    if (ack.empty()) return;
+void AckLayer::ReceiveFromDownstream(const std::vector<uint8_t> &data)
+{
+    if (!enabled_)
+    {
+        SendUpstream(data);
+        return;
+    }
+    DataPacket packet = VectorToDataPacket(data);
+    switch (packet.packet_type)
+    {
+    case static_cast<uint8_t>(PacketType::Data):
+    {
+        // Handle data packet
+        LOGI("Received packet %d", packet.number);
+        SendUpstream(data);
+        // Send an ack packet back
+        DataPacket ack_packet = packet;
+        ack_packet.packet_type = static_cast<uint8_t>(PacketType::DataAck);
+        SendDownstream(DataPacketToVector(ack_packet));
+        break;
+    }
+    case static_cast<uint8_t>(PacketType::DataAck):
+    {
+        // Handle ack packet
+        LOGI("Received ack packet for packet %d", packet.number);
 
-    uint32_t message_id = ack[0]; // Extract message ID from the acknowledgment
-    if (pending_messages_.find(message_id) != pending_messages_.end()) {
-        pending_messages_.erase(message_id);
-        if (ack_callback_) {
-            ack_callback_(message_id);
+        auto it = std::find_if(pending_packets_.begin(), pending_packets_.end(),
+                               [&packet](const AckPacket &pending)
+                               {
+                                   return pending.packet.valid_bytes == packet.valid_bytes &&
+                                          std::memcmp(pending.packet.payload, packet.payload, packet.valid_bytes) == 0;
+                               });
+
+        if (it != pending_packets_.end())
+        {
+            pending_packets_.erase(it);
         }
+        else
+        {
+            LOGW("No matching packet found in pending queue for ack");
+        }
+        break;
+    }
+    default:
+        LOGE("Unknown ack packet type: %d", packet.packet_type);
+        break;
     }
 }
 
-void AckHandlingLayer::SetAckCallback(std::function<void(uint32_t)> callback) {
-    ack_callback_ = callback;
+void AckLayer::ReceiveFromUpstream(const std::vector<uint8_t> &data)
+{
+    if (!enabled_)
+    {
+        SendDownstream(data);
+        return;
+    }
+    fragmented_packets_.emplace_back(VectorToDataPacket(data));
 }
 
-uint32_t AckHandlingLayer::GenerateMessageId() {
-    static uint32_t current_id = 0;
-    return ++current_id;
+void AckLayer::Run()
+{
+    if (!fragmented_packets_.empty() && pending_packets_.size() < max_number_of_packets_)
+    {
+        // put another packet in the pending queue
+        DataPacket packet = fragmented_packets_.front();
+        fragmented_packets_.pop_front();
+        AckPacket ack_packet;
+        ack_packet.packet = packet;
+        ack_packet.packet.number = packet_number_++;
+        LOGI("Adding packet %d to pending queue", ack_packet.packet.number);
+        ack_packet.last_time_sent_ = 0;
+        ack_packet.times_sent_ = 0;
+        pending_packets_.push_back(ack_packet);
+    }
+
+    // Send the pending packets
+    for (auto it = pending_packets_.begin(); it != pending_packets_.end();)
+    {
+        if (it->times_sent_ > 10)
+        {
+            LOGE("Packet failed to send after 3 attempts, dropping");
+            pending_packets_.erase(it); // Update iterator after erase
+            return;
+        }
+
+        if (nerfnet::TimeNowUs() - it->last_time_sent_ > 20000) // 1 second
+        {
+            LOGI("Sending packet %d", it->packet.number);
+            INCREMENT_STATS(&stats, ack_messages_sent);
+            SendDownstream(DataPacketToVector(it->packet));
+            it->last_time_sent_ = nerfnet::TimeNowUs();
+            it->times_sent_++;
+        }
+        ++it;
+    }
 }

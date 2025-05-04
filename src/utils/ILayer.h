@@ -71,8 +71,15 @@ public:
     // Receive data from the higher layer
     virtual void ReceiveFromUpstream(const std::vector<uint8_t> &data) = 0;
 
-
+    // Layer enable setter
+    void SetLayerEnable(bool enable)
+    {
+        layer_enabled_ = enable;
+    }
 private:
+    // Layer enable
+    bool layer_enabled_ = true;
+
     // The downstream layer (the layer below this one)
     ILayer *downstream_layer_ = nullptr;
 

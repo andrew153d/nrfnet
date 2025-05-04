@@ -36,7 +36,7 @@
 #define COLOR_CYAN    "\033[36m"
 #define COLOR_WHITE   "\033[37m"
 
-#define NUM_LINES_LOGGED 15
+#define NUM_LINES_LOGGED 10
 
 // Forward declaration for table printing
 struct Stats;
@@ -48,6 +48,9 @@ struct Stats
   uint32_t packets_received = 0;
   uint32_t fragments_sent = 0;
   uint32_t fragments_received = 0;
+  uint32_t ack_messages_sent = 0;
+  uint32_t ack_messages_received = 0;
+  uint32_t ack_messages_resent= 0;
   uint32_t radio_packets_sent = 0;
   uint32_t radio_packets_received = 0;
   std::deque<std::string> messages;
@@ -133,6 +136,12 @@ inline void print_stats_table(const Stats* stats) {
     snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Fragments Sent", stats->fragments_sent);
     output += line;
     snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Fragments Received", stats->fragments_received);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Ack Messages Sent", stats->ack_messages_sent);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Ack Messages Received", stats->ack_messages_received);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Ack Messages Resent", stats->ack_messages_resent);
     output += line;
     snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Radio Packets Sent", stats->radio_packets_sent);
     output += line;
