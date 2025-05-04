@@ -23,6 +23,10 @@
 #include <string>
 #include <utility>
 #include "nrftime.h"
+#include <thread>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
 // ANSI color codes
 #define COLOR_RESET   "\033[0m"
@@ -44,6 +48,8 @@ struct Stats
   uint32_t packets_received = 0;
   uint32_t fragments_sent = 0;
   uint32_t fragments_received = 0;
+  uint32_t radio_packets_sent = 0;
+  uint32_t radio_packets_received = 0;
   std::deque<std::string> messages;
   // Call this after updating any stat
   void update_and_print() const {
@@ -56,22 +62,87 @@ extern Stats stats;
 // Clear the console and move cursor to top-left
 #define CLEAR_SCREEN() printf("\033[2J\033[H")
 
-// Print the stats table
+// Thread-safe print queue
+struct PrintJob {
+    std::string content;
+};
+
+class PrintManager {
+public:
+    PrintManager() : stop_thread(false) {
+        print_thread = std::thread(&PrintManager::process_queue, this);
+    }
+
+    ~PrintManager() {
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            stop_thread = true;
+        }
+        queue_cv.notify_all();
+        if (print_thread.joinable()) {
+            print_thread.join();
+        }
+    }
+
+    void enqueue(const std::string& content) {
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            print_queue.push({content});
+        }
+        queue_cv.notify_one();
+    }
+
+private:
+    void process_queue() {
+        while (true) {
+            PrintJob job;
+            {
+                std::unique_lock<std::mutex> lock(queue_mutex);
+                queue_cv.wait(lock, [this] { return !print_queue.empty() || stop_thread; });
+                if (stop_thread && print_queue.empty()) {
+                    break;
+                }
+                job = print_queue.front();
+                print_queue.pop();
+            }
+            printf("%s", job.content.c_str());
+        }
+    }
+
+    std::thread print_thread;
+    std::queue<PrintJob> print_queue;
+    std::mutex queue_mutex;
+    std::condition_variable queue_cv;
+    bool stop_thread;
+};
+
+// Global print manager instance
+static PrintManager print_manager;
+
+// Updated print_stats_table to enqueue print jobs
 inline void print_stats_table(const Stats* stats) {
-  CLEAR_SCREEN();
-  if (!stats) return;
-  printf(COLOR_GREEN "=============== Stats Table ==============" COLOR_RESET "\n");
-  printf(COLOR_WHITE "| %-22s | %-13s |\n", "Stat", "Value");
-  printf("|------------------------|---------------|\n");
-  printf("| %-22s | %-13u |\n", "Packets Sent", stats->packets_sent);
-  printf("| %-22s | %-13u |\n", "Packets Received", stats->packets_received);
-  printf("| %-22s | %-13u |\n", "Fragments Sent", stats->fragments_sent);
-  printf("| %-22s | %-13u |\n", "Fragments Received", stats->fragments_received);
-  printf(COLOR_GREEN "==========================================\n" COLOR_RESET);
-  //printf(COLOR_GREEN "Messages:\n" COLOR_RESET);
-  for (const auto& msg : stats->messages) {
-    printf(COLOR_WHITE "%s\n" COLOR_RESET, msg.c_str());
-  }
+    if (!stats) return;
+    std::string output;
+    output += COLOR_GREEN "=============== Stats Table ==============" COLOR_RESET "\n";
+    output += "|------------------------|---------------|\n";
+    char line[64];
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Packets Sent", stats->packets_sent);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Packets Received", stats->packets_received);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Fragments Sent", stats->fragments_sent);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Fragments Received", stats->fragments_received);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Radio Packets Sent", stats->radio_packets_sent);
+    output += line;
+    snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Radio Packets Received", stats->radio_packets_received);
+    output += line;
+    output += COLOR_GREEN "==========================================\n" COLOR_RESET;
+    for (const auto& msg : stats->messages) {
+        output += COLOR_WHITE + msg + "\n" + COLOR_RESET;
+    }
+    print_manager.enqueue(output);
 }
 
 // Helper macros to update stats and print table

@@ -122,6 +122,7 @@ namespace nerfnet
     {
       GenericPacket received_packet;
       std::memset(&received_packet, 0, sizeof(received_packet));
+      INCREMENT_STATS(&stats, radio_packets_received);
       radio_.read(reinterpret_cast<uint8_t *>(&received_packet), sizeof(received_packet));
       if (!ValidateChecksum(received_packet))
       {
@@ -344,12 +345,18 @@ namespace nerfnet
 
     radio_.flush_tx();
 
-    if (packet1)
+    if (packet1){
+      INCREMENT_STATS(&stats, radio_packets_sent);
       radio_.writeFast(packet1->data, 32);
-    if (packet2)
+    }
+    if (packet2){
+      INCREMENT_STATS(&stats, radio_packets_sent);
       radio_.writeFast(packet2->data, 32);
-    if (packet3)
+    }
+    if (packet3){
+      INCREMENT_STATS(&stats, radio_packets_sent);
       radio_.writeFast(packet3->data, 32);
+    }
 
     if (!radio_.txStandBy(100))
     {
