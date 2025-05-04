@@ -25,12 +25,11 @@
 #include <thread>
 #include <vector>
 
-#include "non_copyable.h"
 
 namespace nerfnet {
 
 // The interface to send/receive data using an RF24 radio.
-class RadioInterface : public NonCopyable {
+class RadioInterface {
  public:
   // Setup the radio interface.
   RadioInterface(uint16_t ce_pin, int tunnel_fd,

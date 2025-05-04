@@ -7,20 +7,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # Set the source files
 set(SOURCES
-    src/config_parser.cc
+    src/utils/config_parser.cc
     src/nerfnet_main.cc
-    src/nrftime.cc
+    src/utils/nrftime.cc
     src/primary_radio_interface.cc
     src/radio_interface.cc
     src/secondary_radio_interface.cc
-    src/mesh_radio_interface.cc
-    src/tunnel_interface.cc
-    src/ack_handling_layer.cc
-    src/message_fragmentation_layer.cc
+    src/layers/mesh_radio_interface.cc
+    src/layers/tunnel_interface.cc
+    src/layers/ack_handling_layer.cc
+    src/layers/message_fragmentation_layer.cc
 )
 
 # Include header directories
 include_directories(src)
+include_directories(src/utils)
+include_directories(src/layers)
 
 # Add the executable
 add_executable(nrfnet ${SOURCES})
