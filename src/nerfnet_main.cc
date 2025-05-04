@@ -31,6 +31,7 @@
 #include "tunnel_interface.h"
 #include "log.h"
 #include "config_parser.h"
+#include "message_fragmentation_layer.h"
 
 // A description of the program.
 constexpr char kDescription[] =
@@ -194,13 +195,31 @@ int main(int argc, char** argv) {
     
 
   if(mode == RadioMode::Mesh) {
+    nerfnet::TunnelInterface tunnel_interface(tunnel_fd);
+
+    MessageFragmentationLayer fragmentation_layer;
+
     nerfnet::MeshRadioInterface radio_interface(
     config.ce_pin.value(), 0,
     0x55, 0x66,
     config.channel.value(), config.poll_interval.value());
     
-    nerfnet::TunnelInterface tunnel_interface(radio_interface, tunnel_fd);
-    tunnel_interface.Run();
+    tunnel_interface.SetDownstreamLayer(&fragmentation_layer);
+    fragmentation_layer.SetDownstreamLayer(&radio_interface);
+    radio_interface.SetDownstreamLayer(nullptr); // Bottom Layer
+    radio_interface.SetUpstreamLayer(&fragmentation_layer);
+    fragmentation_layer.SetUpstreamLayer(&tunnel_interface); 
+    tunnel_interface.SetUpstreamLayer(nullptr); // Top Layer
+
+    tunnel_interface.Start();
+    while(1)
+    {
+      tunnel_interface.Run();
+      radio_interface.Run();
+    }
+
+
+
   } else if(mode == RadioMode::Automatic)
   {
     LOGI("Negotiating Radio Roles");

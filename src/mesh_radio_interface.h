@@ -25,13 +25,12 @@
 #include <deque>
 #include <unordered_set>
 #include <RF24/RF24.h>
+#include "ILayer.h"
 
 namespace nerfnet
 {
-  using DataCallback = std::function<void(const std::vector<uint8_t> &)>;
-
   // The mesh mode radio interface.
-  class MeshRadioInterface
+  class MeshRadioInterface : public ILayer
   {
   public:
     // Setup the mesh radio link.
@@ -39,10 +38,10 @@ namespace nerfnet
                        uint32_t primary_addr, uint32_t secondary_addr,
                        uint8_t channel, uint64_t poll_interval_us);
 
-    void SetTunnelCallback(DataCallback callback);
-
     // Runs the interface
     void Run();
+
+    
 
   private:
     // The radio interface
@@ -118,6 +117,7 @@ namespace nerfnet
     {
       Discovery,
       DiscoverResponse,
+      NodeIdAnnouncement,
       Data
     };
 
@@ -149,15 +149,6 @@ namespace nerfnet
     };
     static_assert(sizeof(DiscoveryAckPacket) == 32, "DiscoveryAckPacket size must be 32 bytes");
 
-    struct DataPacket
-    {
-      uint8_t checksum : 4;
-      uint8_t packet_type : 4;
-      uint8_t source_id;
-      uint8_t payload[30];
-    };
-    static_assert(sizeof(DataPacket) == 32, "DataPacket size must be 32 bytes");
-
 #pragma endregion
 
     struct PacketFrame
@@ -178,8 +169,6 @@ namespace nerfnet
     uint64_t current_poll_interval_us_;
     bool connection_reset_required_;
 
-    void NotifyTunnel(const std::vector<uint8_t> &data);
-
     void SetNodeId(uint8_t node_id);
     void SetRadioState(RadioState state);
 
@@ -188,12 +177,16 @@ namespace nerfnet
     void DiscoveryTask();
     void HandleDiscoveryPacket(const DiscoveryPacket &packet);
     void HandleDiscoveryAckPacket(const DiscoveryAckPacket &packet);
+    void SendNodeIdAnnouncement();
+    void HandleNodeIdAnnouncementPacket(const DiscoveryPacket &packet);
+
+
+    void ReceiveFromDownstream(const std::vector<uint8_t>& data) override {}
+    void ReceiveFromUpstream(const std::vector<uint8_t>& data) override;
 
     void InsertChecksum(GenericPacket &packet);
     bool ValidateChecksum(GenericPacket &packet);
     uint8_t CalculateChecksum(GenericPacket &packet);
-
-    DataCallback tunnel_callback_;
   };
 
 } // namespace nerfnet

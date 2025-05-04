@@ -15,6 +15,8 @@ set(SOURCES
     src/secondary_radio_interface.cc
     src/mesh_radio_interface.cc
     src/tunnel_interface.cc
+    src/ack_handling_layer.cc
+    src/message_fragmentation_layer.cc
 )
 
 # Include header directories

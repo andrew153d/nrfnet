@@ -3,91 +3,89 @@
 #include <cstring>
 #include <errno.h>
 #include "nrftime.h"
-namespace nerfnet {
+#include <queue>
 
-TunnelInterface::TunnelInterface(MeshRadioInterface& mesh_radio_interface, int tunnel_fd)
-    : mesh_radio_interface_(mesh_radio_interface), tunnel_fd_(tunnel_fd), running_(true), logs_enabled_(false) {
-}
+namespace nerfnet
+{
 
-TunnelInterface::~TunnelInterface() {
-    running_ = false;
-    if (tunnel_thread_.joinable()) {
-        tunnel_thread_.join();
-    }
-}
-
-void TunnelInterface::Run() {
-    InitializeCallback();
-    tunnel_thread_ = std::thread(&TunnelInterface::TunnelThread, this);
-    while(1)
+    TunnelInterface::TunnelInterface(int tunnel_fd)
+        : tunnel_fd_(tunnel_fd), running_(true)
     {
-        mesh_radio_interface_.Run();
     }
-}
 
-void TunnelInterface::ReadFromTunnel() {
-    char buffer[1024];
-    ssize_t bytes_read = read(tunnel_fd_, buffer, sizeof(buffer));
-    if (bytes_read > 0) {
-        LOGI("Read %ld bytes from tunnel", bytes_read);
-        // Process the data read from the tunnel
-        if (data_callback_) {
-            data_callback_(std::vector<uint8_t>(buffer, buffer + bytes_read));
-        }
-    } else if (bytes_read < 0) {
-        LOGE("Error reading from tunnel");
-    }
-}
-
-void TunnelInterface::WriteToTunnel() {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
-    if (!buffer_.empty()) {
-        auto& data = buffer_.front();
-        ssize_t bytes_written = write(tunnel_fd_, data.data(), data.size());
-        if (logs_enabled_) {
-            LOGI("Wrote %ld bytes to tunnel", bytes_written);
-        }
-        buffer_.erase(buffer_.begin());
-    }
-}
-
-void TunnelInterface::SetDataCallback(DataCallback callback) {
-    data_callback_ = std::move(callback);
-}
-
-void TunnelInterface::TunnelThread() {
-    constexpr size_t kMaxBufferedFrames = 1024;
-    uint8_t buffer[3200];
-
-    while (running_) {
-        int bytes_read = read(tunnel_fd_, buffer, sizeof(buffer));
-        if (bytes_read < 0) {
-            LOGE("Failed to read: %s (%d)", strerror(errno), errno);
-            continue;
-        }
-
+    TunnelInterface::~TunnelInterface()
+    {
+        running_ = false;
+        if (tunnel_thread_.joinable())
         {
-            std::lock_guard<std::mutex> lock(buffer_mutex_);
-            buffer_.emplace_back(&buffer[0], &buffer[bytes_read]);
-            if (logs_enabled_) {
-                LOGI("Read %zu bytes from the tunnel", buffer_.back().size());
+            tunnel_thread_.join();
+        }
+    }
+
+    void TunnelInterface::Start()
+    {
+        tunnel_thread_ = std::thread(&TunnelInterface::TunnelThread, this);
+    }
+
+    void TunnelInterface::Run()
+    {
+        std::lock_guard<std::mutex> lock(downstream_buffer_mutex_);
+        if (!downstream_buffer_.empty())
+        {
+            auto &data = downstream_buffer_.front();
+            LOGI("Sending %zu bytes to downstream", data.size());
+            SendDownstream(data);
+            downstream_buffer_.pop_front();
+        }
+
+        WriteToTunnel();
+    }
+
+    void TunnelInterface::WriteToTunnel()
+    {
+        std::lock_guard<std::mutex> lock(upstream_buffer_mutex_);
+        if (!upstream_buffer_.empty())
+        {
+            auto &data = upstream_buffer_.front();
+            //ssize_t bytes_written = data.size();
+            //LOGW("Faking write %ld bytes to tunnel", bytes_written);
+            ssize_t bytes_written = write(tunnel_fd_, data.data(), data.size());
+            upstream_buffer_.pop_front();
+        }
+    }
+
+    void TunnelInterface::TunnelThread()
+    {
+        constexpr size_t kMaxBufferedFrames = 1024;
+        uint8_t buffer[3200];
+
+        while (running_)
+        {
+            int bytes_read = read(tunnel_fd_, buffer, sizeof(buffer));
+            if (bytes_read < 0)
+            {
+                LOGE("Failed to read: %s (%d)", strerror(errno), errno);
+                continue;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(downstream_buffer_mutex_);
+                downstream_buffer_.push_back(std::vector<uint8_t>(&buffer[0], &buffer[bytes_read]));
+
+                LOGI("Read %zu bytes from the tunnel", downstream_buffer_.back().size());
+            }
+
+            while (downstream_buffer_.size() > kMaxBufferedFrames && running_)
+            {
+                SleepUs(1000);
             }
         }
-
-        while (buffer_.size() > kMaxBufferedFrames && running_) {
-            SleepUs(1000);
-        }
     }
-}
 
-void TunnelInterface::InitializeCallback() {
-    mesh_radio_interface_.SetTunnelCallback([this](const std::vector<uint8_t>& data) {
-        std::lock_guard<std::mutex> lock(buffer_mutex_);
-        buffer_.emplace_back(data);
-        
-        // Print the received data
-        LOGI("Received %zu bytes from mesh", data.size());
-    });
-}
-
+    void TunnelInterface::ReceiveFromDownstream(const std::vector<uint8_t> &data)
+    {
+        LOGI("Tunnel Layer Received %zu bytes from downstream", data.size());
+        std::lock_guard<std::mutex> lock(upstream_buffer_mutex_);
+        upstream_buffer_.push_back(data);
+    }
 } // namespace nerfnet

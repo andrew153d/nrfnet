@@ -22,7 +22,7 @@
 #include "macros.h"
 #include "nrftime.h"
 #include <algorithm>
-
+#include "message_definitions.h"
 namespace nerfnet
 {
 
@@ -67,6 +67,9 @@ namespace nerfnet
 
     radio_.openReadingPipe(0, reading_pipe_addresses_[0]);
     radio_.openReadingPipe(1, reading_pipe_addresses_[1]);
+
+    radio_.flush_rx();
+    radio_.flush_tx();
   }
 
   // Method of operation
@@ -86,6 +89,7 @@ namespace nerfnet
     radio_.stopListening();
     SleepUs(1000);
     node_id_ = node_id;
+    SendNodeIdAnnouncement();
     writing_pipe_address_ = 0;
     for (int i = 1; i < 6; i++)
     {
@@ -101,59 +105,50 @@ namespace nerfnet
   {
     if (state == Listening && radio_state_ == Discovery)
     {
-      // add some dummy data to the queue to make sure we send a packet
-      PacketFrame packet;
-      packet.remote_pipe_address = base_address_ + ((*neighbor_node_ids_.begin()) << 8) + 0x01; // send to pipe one
-      DataPacket *data_packet = reinterpret_cast<DataPacket *>(&packet.data[0]);
-      std::memset(data_packet, 0, sizeof(DataPacket));
-      data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
-      data_packet->source_id = node_id_;
-      InsertChecksum(*reinterpret_cast<GenericPacket *>(data_packet));
-      for (int i = 0; i < 3; i++)
-      {
-        packets_to_send_.emplace_back(packet);
-      }
     }
     radio_state_ = state;
   }
 
   void MeshRadioInterface::Run()
   {
-      DiscoveryTask();
-      Sender();
+    DiscoveryTask();
+    Sender();
 
-      if (radio_.available())
+    if (radio_.available())
+    {
+      GenericPacket received_packet;
+      std::memset(&received_packet, 0, sizeof(received_packet));
+      radio_.read(reinterpret_cast<uint8_t *>(&received_packet), sizeof(received_packet));
+      if (!ValidateChecksum(received_packet))
       {
-        GenericPacket received_packet;
-        std::memset(&received_packet, 0, sizeof(received_packet));
-        radio_.read(reinterpret_cast<uint8_t *>(&received_packet), sizeof(received_packet));
-        if (!ValidateChecksum(received_packet))
-        {
-          LOGE("Invalid checksum");
-          return;
-        }
-        switch ((PacketType)received_packet.packet_type)
-        {
-        case PacketType::Discovery:
-          HandleDiscoveryPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
-          break;
-        case PacketType::DiscoverResponse:
-          HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
-          break;
-        case PacketType::Data:
-        {
-          DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
-          LOGI("Received data packet from 0x%X", data_packet->source_id);
-          break;
-        }
-        default:
-          LOGE("Unknown packet type: %d", received_packet.packet_type);
-          break;
-        }
+        LOGE("Invalid checksum");
+        return;
       }
-
-      
-    
+      switch ((PacketType)received_packet.packet_type)
+      {
+      case PacketType::Discovery:
+        HandleDiscoveryPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+        break;
+      case PacketType::DiscoverResponse:
+        HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
+        break;
+      case PacketType::Data:
+      {
+        DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
+        //LOGI("Received data packet with %zu bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
+        // LOGI("First few bytes of packet: %02X %02X %02X %02X %02X", 
+        // data_packet->raw_data[0], data_packet->raw_data[1], data_packet->raw_data[2], data_packet->raw_data[3], data_packet->raw_data[4]);
+        SendUpstream(DataPacketToVector(*data_packet));
+        break;
+      }
+      case PacketType::NodeIdAnnouncement:
+        HandleNodeIdAnnouncementPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+        break;
+      default:
+        LOGE("Unknown packet type: %d", received_packet.packet_type);
+        break;
+      }
+    }
   }
 
   void MeshRadioInterface::DiscoveryTask()
@@ -274,6 +269,32 @@ namespace nerfnet
     return;
   }
 
+  void MeshRadioInterface::HandleNodeIdAnnouncementPacket(const DiscoveryPacket &packet)
+  {
+    LOGI("Received node id announcement packet from 0x%X", packet.source_node_id);
+    if (packet.source_node_id == node_id_)
+    {
+      LOGI("Received node id announcement from self, ignoring");
+      return;
+    }
+    neighbor_node_ids_.insert(packet.source_node_id);
+    LOGI("Added node id 0x%X to neighbor list", packet.source_node_id);
+  }
+
+  // Announce the node id to the network
+  void MeshRadioInterface::SendNodeIdAnnouncement()
+  {
+    PacketFrame packet;
+    // Send to the discovery address
+    packet.remote_pipe_address = base_address_ + discovery_address_offset_; // pipe 0 is used for discovery
+    DiscoveryPacket *discovery_packet = reinterpret_cast<DiscoveryPacket *>(&packet.data[0]);
+    std::memset(discovery_packet, 0, sizeof(DiscoveryPacket));
+    discovery_packet->packet_type = static_cast<uint8_t>(PacketType::NodeIdAnnouncement);
+    discovery_packet->source_node_id = node_id_;
+    InsertChecksum(*reinterpret_cast<GenericPacket *>(discovery_packet));
+    packets_to_send_.emplace_back(packet);
+  }
+
   void MeshRadioInterface::Sender()
   {
     if (packets_to_send_.empty())
@@ -313,6 +334,31 @@ namespace nerfnet
     last_listen_time_us_ = TimeNowUs();
   }
 
+  void MeshRadioInterface::ReceiveFromUpstream(const std::vector<uint8_t> &data)
+  {
+    // LOGI("Mesh Radio Received %zu bytes from upstream", data.size());
+
+    if (!neighbor_node_ids_.empty())
+    {
+      DataPacket outgoing_packet = VectorToDataPacket(data);
+      PacketFrame packet;
+      packet.remote_pipe_address = base_address_ + ((*neighbor_node_ids_.begin()) << 8) + 0x01; // send to pipe one
+      DataPacket *data_packet = reinterpret_cast<DataPacket *>(&packet.data[0]);
+      *data_packet = outgoing_packet;
+      data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
+      // data_packet->source_id = node_id_;
+      InsertChecksum(*reinterpret_cast<GenericPacket *>(data_packet));
+      // LOGI("Packet: %d bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
+      // LOGI("First few bytes of packet: %02X %02X %02X %02X %02X", 
+      //   packet.data[0], packet.data[1], packet.data[2], packet.data[3], packet.data[4]);
+      packets_to_send_.emplace_back(packet);
+    }
+    else
+    {
+      LOGE("Neighbor node IDs list is empty. Cannot send data.");
+    }
+  }
+
   void MeshRadioInterface::InsertChecksum(GenericPacket &packet)
   {
     packet.checksum = CalculateChecksum(packet);
@@ -337,15 +383,4 @@ namespace nerfnet
     checksum = checksum % (1 << checksum_bit_length);
     return checksum;
   };
-
-  void MeshRadioInterface::SetTunnelCallback(DataCallback callback) {
-      tunnel_callback_ = std::move(callback);
-  }
-
-  void MeshRadioInterface::NotifyTunnel(const std::vector<uint8_t>& data) {
-      if (tunnel_callback_) {
-          tunnel_callback_(data);
-      }
-  }
-
 } // namespace nerfnet
