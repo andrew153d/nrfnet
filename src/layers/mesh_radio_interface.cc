@@ -118,7 +118,7 @@ namespace nerfnet
     DiscoveryTask();
     Sender();
 
-    while (radio_.available())
+    if (radio_.available())
     {
       GenericPacket received_packet;
       std::memset(&received_packet, 0, sizeof(received_packet));
@@ -138,11 +138,9 @@ namespace nerfnet
         HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
         break;
       case PacketType::Data:
+      case PacketType::DataAck:
       {
         DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
-        // LOGI("Received data packet with %zu bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
-        //  LOGI("First few bytes of packet: %02X %02X %02X %02X %02X",
-        //  data_packet->raw_data[0], data_packet->raw_data[1], data_packet->raw_data[2], data_packet->raw_data[3], data_packet->raw_data[4]);
         SendUpstream(DataPacketToVector(*data_packet));
         break;
       }

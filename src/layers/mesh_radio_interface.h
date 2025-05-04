@@ -113,14 +113,6 @@ namespace nerfnet
 
 #pragma region PacketDefenitions
 
-    enum class PacketType
-    {
-      Discovery,
-      DiscoverResponse,
-      NodeIdAnnouncement,
-      Data
-    };
-
     struct __attribute__((packed)) GenericPacket
     {
       uint8_t checksum : 4;

@@ -16,6 +16,15 @@ static_assert(PACKET_HEADER_SIZE + PACKET_PAYLOAD_SIZE == PACKET_SIZE, "Header p
 #define PACKET_VALID_BYTES_BITS 5
 #define FINAL_PACKET_SIZE_BITS 1
 
+enum class PacketType
+{
+    Discovery,
+    DiscoverResponse,
+    NodeIdAnnouncement,
+    Data,
+    DataAck,
+};
+
 union DataPacket
 {
     struct
@@ -24,24 +33,24 @@ union DataPacket
         uint8_t packet_type : PACKET_TYPE_SIZE_BITS;
         uint8_t valid_bytes : PACKET_VALID_BYTES_BITS;
         bool final_packet : FINAL_PACKET_SIZE_BITS;
-        uint8_t padding: 2;
+        uint8_t padding : 2;
         uint8_t payload[PACKET_PAYLOAD_SIZE];
     };
     uint8_t raw_data[PACKET_SIZE];
 };
-    static_assert(sizeof(DataPacket) == PACKET_SIZE, "DataPacket size must be 32 bytes");
+static_assert(sizeof(DataPacket) == PACKET_SIZE, "DataPacket size must be 32 bytes");
 
-
-
-//Converts vector to DataPacket
-inline DataPacket VectorToDataPacket(const std::vector<uint8_t>& data) {
+// Converts vector to DataPacket
+inline DataPacket VectorToDataPacket(const std::vector<uint8_t> &data)
+{
     CHECK(data.size() == PACKET_SIZE, "Data size must be 32 bytes");
     DataPacket packet;
     std::copy(data.begin(), data.end(), packet.raw_data);
     return packet;
 }
 // Converts DataPacket to vector
-inline std::vector<uint8_t> DataPacketToVector(const DataPacket& packet) {
+inline std::vector<uint8_t> DataPacketToVector(const DataPacket &packet)
+{
     std::vector<uint8_t> data(PACKET_SIZE);
     std::copy(packet.raw_data, packet.raw_data + PACKET_SIZE, data.begin());
     return data;
