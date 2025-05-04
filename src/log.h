@@ -28,6 +28,58 @@
 #define COLOR_CYAN    "\033[36m"
 #define COLOR_WHITE   "\033[37m"
 
+
+// Forward declaration for table printing
+struct Stats;
+void print_stats_table(const Stats* stats);
+
+struct Stats
+{
+  uint32_t packets_sent = 0;
+  uint32_t packets_received = 0;
+  uint32_t fragments_sent = 0;
+  uint32_t fragments_received = 0;
+
+  // Call this after updating any stat
+  void update_and_print() const {
+    print_stats_table(this);
+  }
+};
+
+extern Stats stats;
+
+// Clear the console and move cursor to top-left
+#define CLEAR_SCREEN() printf("\033[2J\033[H")
+
+// Print the stats table
+inline void print_stats_table(const Stats* stats) {
+  CLEAR_SCREEN();
+  if (!stats) return;
+  printf(COLOR_GREEN "=============== Stats Table ==============\n" COLOR_RESET);
+  printf(COLOR_WHITE "| %-22s | %-13s |\n", "Stat", "Value");
+  printf("|------------------------|---------------|\n");
+  printf("| %-22s | %-13u |\n", "Packets Sent", stats->packets_sent);
+  printf("| %-22s | %-13u |\n", "Packets Received", stats->packets_received);
+  printf("| %-22s | %-13u |\n", "Fragments Sent", stats->fragments_sent);
+  printf("| %-22s | %-13u |\n", "Fragments Received", stats->fragments_received);
+  printf(COLOR_GREEN "==========================================\n" COLOR_RESET);
+}
+
+// Helper macros to update stats and print table
+#define UPDATE_STATS(stats_ptr, field, value) \
+  do { \
+    (stats_ptr)->field = (value); \
+    print_stats_table(stats_ptr); \
+  } while (0)
+
+#define INCREMENT_STATS(stats_ptr, field) \
+  do { \
+    ++((stats_ptr)->field); \
+    print_stats_table(stats_ptr); \
+  } while (0)
+
+
+
 // Check a condition and quit if it evaluates to false with an error log.
 #define CHECK(cond, fmt, ...)                               \
     do {                                                    \

@@ -25,6 +25,7 @@ void MessageFragmentationLayer::ReceiveFromDownstream(const std::vector<uint8_t>
 
         // Combine all fragmented packets
         for (const auto &frag_packet : fragmented_packets_) {
+            INCREMENT_STATS(&stats, fragments_received);
             payload.insert(payload.end(), frag_packet.payload, frag_packet.payload + frag_packet.valid_bytes);
         }
 
@@ -61,6 +62,7 @@ void MessageFragmentationLayer::ReceiveFromUpstream(const std::vector<uint8_t> &
         }
         //packet.payload[10] = packet_number_++;
         //LOGI("Pushing Packet %d with size %zu, final: %d, num: %d", i, packet.valid_bytes, packet.final_packet, packet.payload[10]);
+        INCREMENT_STATS(&stats, fragments_sent);
         SendDownstream(DataPacketToVector(packet));
     }
 }

@@ -40,6 +40,9 @@ constexpr char kDescription[] =
 // The version of the program.
 constexpr char kVersion[] = "0.0.1";
 
+//Stats object to hold the stats
+Stats stats;
+
 // Auto Negotiation of the radio interface.
 RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin, uint16_t channel, uint32_t discovery_address = 0xFFFABABA)
 {
