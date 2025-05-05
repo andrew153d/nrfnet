@@ -95,11 +95,12 @@ namespace nerfnet
     node_id_ = node_id;
     SendNodeIdAnnouncement();
     writing_pipe_address_ = 0;
+    LOGI("Opening reading pipes");
     for (int i = 1; i < 6; i++)
     {
       reading_pipe_addresses_[i] = base_address_ + (node_id_ << 8) + i;
       radio_.openReadingPipe(i, reading_pipe_addresses_[i]);
-      LOGI("Opened reading pipe %d: 0x%X", i, reading_pipe_addresses_[i]);
+      //LOGI("Opened reading pipe %d: 0x%X", i, reading_pipe_addresses_[i]);
     }
     SleepUs(1000);
     radio_.startListening();
@@ -206,18 +207,18 @@ namespace nerfnet
 
   void MeshRadioInterface::HandleDiscoveryPacket(const DiscoveryPacket &packet)
   {
-    LOGI("Received discovery packet from 0x%X", packet.source_node_id);
+    //LOGI("Received discovery packet from 0x%X", packet.source_node_id);
 
     if (radio_state_ == Discovery)
     {
       if (packet.source_node_id == node_id_)
       {
-        LOGI("Received discovery from self, ignoring");
+        //LOGI("Received discovery from self, ignoring");
         return;
       }
       if (packet.source_node_id < node_id_)
       {
-        LOGI("Received discovery from node 0x%X, but this node is lower than me, resetting discovery counter", packet.source_node_id);
+        //LOGI("Received discovery from node 0x%X, but this node is lower than me, resetting discovery counter", packet.source_node_id);
         discovery_message_timer_ = 0;
         number_of_discovery_messages_sent_ = 0;
         return;
@@ -248,7 +249,7 @@ namespace nerfnet
       }
     }
     InsertChecksum(*reinterpret_cast<GenericPacket *>(ack_packet));
-    LOGI("Sending discovery ack packet to 0x%X", packet_frame.remote_pipe_address);
+    //LOGI("Sending discovery ack packet to 0x%X", packet_frame.remote_pipe_address);
     packets_to_send_.emplace_back(packet_frame);
     return;
   }
@@ -356,7 +357,7 @@ namespace nerfnet
       radio_.writeFast(packet3->data, 32);
     }
 
-    if (!radio_.txStandBy(100))
+    if (!radio_.txStandBy())
     {
       LOGE("Failed to write packet (timeout)");
     }
