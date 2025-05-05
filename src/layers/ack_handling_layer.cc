@@ -34,6 +34,7 @@ void AckLayer::ReceiveFromDownstream(const std::vector<uint8_t> &data)
         // Send an ack packet back
         DataPacket ack_packet = packet;
         ack_packet.packet_type = static_cast<uint8_t>(PacketType::DataAck);
+        INCREMENT_STATS(&stats, ack_messages_received);
         SendDownstream(DataPacketToVector(ack_packet));
         break;
     }
@@ -86,8 +87,10 @@ void AckLayer::Run()
         ack_packet.packet = packet;
         ack_packet.packet.number = packet_number_++;
         LOGI("Adding packet %d to pending queue", ack_packet.packet.number);
-        ack_packet.last_time_sent_ = 0;
-        ack_packet.times_sent_ = 0;
+        INCREMENT_STATS(&stats, ack_messages_sent);
+        SendDownstream(DataPacketToVector(ack_packet.packet));
+        ack_packet.last_time_sent_ = nerfnet::TimeNowUs();
+        ack_packet.times_sent_ = 1;
         pending_packets_.push_back(ack_packet);
     }
 
@@ -104,7 +107,7 @@ void AckLayer::Run()
         if (nerfnet::TimeNowUs() - it->last_time_sent_ > 20000) // 1 second
         {
             LOGI("Sending packet %d", it->packet.number);
-            INCREMENT_STATS(&stats, ack_messages_sent);
+            INCREMENT_STATS(&stats, ack_messages_resent);
             SendDownstream(DataPacketToVector(it->packet));
             it->last_time_sent_ = nerfnet::TimeNowUs();
             it->times_sent_++;
