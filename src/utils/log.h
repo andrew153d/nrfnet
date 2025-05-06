@@ -37,7 +37,7 @@
 #define COLOR_WHITE "\033[37m"
 
 #define NUM_LINES_LOGGED 10
-// #define ENABLE_TABLE_PRINTING
+//#define ENABLE_TABLE_PRINTING
 
 // Forward declaration for table printing
 struct Stats;
@@ -235,8 +235,7 @@ inline void print_stats_table(const Stats *stats)
   {                                                                      \
     char buffer[256];                                                    \
     snprintf(buffer, sizeof(buffer), fmt, ##__VA_ARGS__);                \
-    std::string colored_msg = std::string(color) + buffer + COLOR_RESET; \
-    printf("%s", colored_msg.c_str());                                   \
+    printf("%s%s%s\n", color, buffer, COLOR_RESET);                      \
   } while (0)
 #endif
 
