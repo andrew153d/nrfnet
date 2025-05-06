@@ -128,6 +128,7 @@ namespace nerfnet
       if (!ValidateChecksum(received_packet))
       {
         LOGE("Invalid checksum");
+        radio_.flush_rx();
         return;
       }
       switch ((PacketType)received_packet.packet_type)
