@@ -405,6 +405,25 @@ namespace nerfnet
     }
   }
 
+  void MeshRadioInterface::Reset()
+  {
+    packets_to_send_.clear();
+    neighbor_node_ids_.clear();
+    discovery_message_timer_ = 0;
+    number_of_discovery_messages_sent_ = 0;
+    discovery_ack_received_time_us_ = 0;
+    radio_state_ = Discovery;
+    writing_pipe_address_ = 0;
+    for(int i = 0; i < 5; i++)
+    {
+      reading_pipe_addresses_[i] = 0;
+    }
+    radio_.stopListening();
+    radio_.flush_rx();
+    radio_.flush_tx();
+    radio_.startListening();
+  }
+
   void MeshRadioInterface::InsertChecksum(GenericPacket &packet)
   {
     packet.checksum = CalculateChecksum(packet);

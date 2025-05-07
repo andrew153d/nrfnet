@@ -15,6 +15,7 @@ public:
     void ReceiveFromDownstream(const std::vector<uint8_t>& data) override;
     void ReceiveFromUpstream(const std::vector<uint8_t>& data) override;
 
+    void Reset() override;
 private:
     uint8_t packet_number_ = 0;
     std::vector<DataPacket> fragmented_packets_;

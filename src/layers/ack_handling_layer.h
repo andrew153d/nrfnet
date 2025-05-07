@@ -16,6 +16,7 @@ public:
 
     void ReceiveFromDownstream(const std::vector<uint8_t>& data) override;
     void ReceiveFromUpstream(const std::vector<uint8_t>& data) override;
+    void Reset() override;
 
     void Enable(bool enabled)
     {

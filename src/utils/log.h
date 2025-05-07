@@ -27,6 +27,7 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <stdbool.h>
 #include "nrftime.h"
 // ANSI color codes
 #define COLOR_RESET "\033[0m"
@@ -48,6 +49,7 @@ namespace Logger
   {
     uint32_t packets_sent = 0;
     uint32_t packets_received = 0;
+    uint32_t packet_size = 0;
     uint32_t fragments_sent = 0;
     uint32_t fragments_received = 0;
     uint32_t ack_messages_sent = 0;
@@ -85,20 +87,10 @@ namespace Logger
     {
       while (true)
       {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!cv_.wait_for(lock, std::chrono::milliseconds(1500), [this]
+                         { return this->dataChanged; }))
         {
-          std::unique_lock<std::mutex> lock(mutex_);
-          cv_.wait_for(lock, std::chrono::milliseconds(500));
-
-          if (stop_thread_)
-          {
-            break;
-          }
-
-          while (log_queue_.size() > NUM_LINES_LOGGED)
-          {
-            log_queue_.pop_front();
-          }
-
           // Run the error rate calculation every 100ms
           while (error_times_.size() > 0 && error_times_.front() < nerfnet::TimeNowUs() - 1000000) // The number of errors in the last second
           {
@@ -106,46 +98,58 @@ namespace Logger
           }
           float alpha = 0.1f;
           stats.error_rate = (1.0f - alpha) * stats.error_rate + alpha * static_cast<float>(error_times_.size());
-
-          std::string string_message = "";
-
-            // Print the top lines of the table
-            string_message += "┌──────────────────────────────────────────┐\n";
-            string_message += "│           Statistics Table               │\n";
-            string_message += "├──────────────────────────────┬───────────┤\n";
-            char buffer[256];
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packets Sent", stats.packets_sent);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packets Received", stats.packets_received);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Fragments Sent", stats.fragments_sent);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Fragments Received", stats.fragments_received);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Sent", stats.ack_messages_sent);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Received", stats.ack_messages_received);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Resent", stats.ack_messages_resent);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Radio Packets Sent", stats.radio_packets_sent);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Radio Packets Received", stats.radio_packets_received);
-            string_message += buffer;
-            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10.2f│\n", "Error Rate", stats.error_rate);
-            string_message += buffer;
-            string_message += "└──────────────────────────────┴───────────┘\n";
-
-          for (const auto &message : log_queue_)
-          {
-            string_message += message;
-            string_message += "\n";
-          }
-
-          CLEAR_SCREEN();
-
-          printf("%s", string_message.c_str());
         }
+        dataChanged = false;
+        if (stop_thread_)
+        {
+          break;
+        }
+
+        while (log_queue_.size() > NUM_LINES_LOGGED)
+        {
+          log_queue_.pop_front();
+        }
+
+        std::string string_message = "";
+
+        // Print the top lines of the table
+        string_message += "┌──────────────────────────────────────────┐\n";
+        string_message += "│           Statistics Table               │\n";
+        string_message += "├──────────────────────────────┬───────────┤\n";
+        char buffer[256];
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packets Sent", stats.packets_sent);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packets Received", stats.packets_received);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packet Size", stats.packet_size);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Fragments Sent", stats.fragments_sent);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Fragments Received", stats.fragments_received);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Sent", stats.ack_messages_sent);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Received", stats.ack_messages_received);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Resent", stats.ack_messages_resent);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Radio Packets Sent", stats.radio_packets_sent);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Radio Packets Received", stats.radio_packets_received);
+        string_message += buffer;
+        snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10.2f│\n", "Error Rate", stats.error_rate);
+        string_message += buffer;
+        string_message += "└──────────────────────────────┴───────────┘\n";
+
+        for (const auto &message : log_queue_)
+        {
+          string_message += message;
+          string_message += "\n";
+        }
+
+        CLEAR_SCREEN();
+
+        printf("%s", string_message.c_str());
       }
       printf(COLOR_RED "Logger thread exiting\n" COLOR_RESET);
     }
@@ -182,13 +186,17 @@ namespace Logger
       cv_.notify_all();
     }
 
-    std::thread thread_;
+    Statistics stats;
+
     std::deque<std::string> log_queue_;
     std::deque<std::uint64_t> error_times_;
+
+    std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
+
     bool stop_thread_ = false;
-    Statistics stats;
+    bool dataChanged = false;
   };
 
 }
@@ -208,6 +216,8 @@ extern Logger::LogPrinter logger;
   {                                       \
     ++(logger.stats.field);               \
     logger.update();                      \
+    logger.dataChanged = true;            \
+    logger.cv_.notify_all();              \
   } while (0)
 #else
 #define UPDATE_STATS(stats_ptr, field, value) \
@@ -248,6 +258,8 @@ extern Logger::LogPrinter logger;
     snprintf(buffer, sizeof(buffer), fmt, ##__VA_ARGS__);                \
     std::string colored_msg = std::string(color) + buffer + COLOR_RESET; \
     logger.log(colored_msg);                                             \
+    logger.dataChanged = true;                                           \
+    logger.cv_.notify_all();                                             \
   } while (0)
 #else
 #define LOG(color, fmt, ...)                              \

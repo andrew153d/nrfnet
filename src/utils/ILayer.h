@@ -76,6 +76,8 @@ public:
     {
         layer_enabled_ = enable;
     }
+
+    virtual void Reset() = 0;
 private:
     // Layer enable
     bool layer_enabled_ = true;

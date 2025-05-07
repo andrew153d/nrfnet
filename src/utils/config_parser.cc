@@ -104,9 +104,9 @@ void ConfigParser::load() {
 
 void ConfigParser::print()
 {
-    std::cout << "Configuration values:" << std::endl;
+    LOGI("Configuration values:");
     for (const auto& pair : config) {
-        std::cout << pair.first << ": " << pair.second << std::endl;
+        LOGI("%s: %s", pair.first.c_str(), pair.second.c_str());
     }
 }
 

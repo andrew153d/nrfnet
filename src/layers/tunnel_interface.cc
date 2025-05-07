@@ -40,6 +40,14 @@ namespace nerfnet
         WriteToTunnel();
     }
 
+    void TunnelInterface::Reset()
+    {
+        std::lock_guard<std::mutex> lock(upstream_buffer_mutex_);
+        upstream_buffer_.clear();
+        std::lock_guard<std::mutex> lock2(downstream_buffer_mutex_);
+        downstream_buffer_.clear();
+    }
+
     void TunnelInterface::WriteToTunnel()
     {
         std::lock_guard<std::mutex> lock(upstream_buffer_mutex_);

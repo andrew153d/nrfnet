@@ -176,6 +176,8 @@ namespace nerfnet
     void ReceiveFromDownstream(const std::vector<uint8_t>& data) override {}
     void ReceiveFromUpstream(const std::vector<uint8_t>& data) override;
 
+    void Reset() override;
+
     void InsertChecksum(GenericPacket &packet);
     bool ValidateChecksum(GenericPacket &packet);
     uint8_t CalculateChecksum(GenericPacket &packet);

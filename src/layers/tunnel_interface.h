@@ -23,7 +23,7 @@ public:
 
     void Start();
     void Run();
-
+    void Reset() override;
     // Reads data from the tunnel and sends it to the mesh
 
     // Writes data from the upstream buffer to the tunnel

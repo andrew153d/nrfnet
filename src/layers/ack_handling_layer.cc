@@ -76,6 +76,13 @@ void AckLayer::ReceiveFromUpstream(const std::vector<uint8_t> &data)
     fragmented_packets_.emplace_back(VectorToDataPacket(data));
 }
 
+void AckLayer::Reset()
+{
+    fragmented_packets_.clear();
+    pending_packets_.clear();
+    packet_number_ = static_cast<uint8_t>(std::rand() % 256);
+}
+
 void AckLayer::Run()
 {
     if (!fragmented_packets_.empty() && pending_packets_.size() < max_number_of_packets_)
@@ -97,14 +104,14 @@ void AckLayer::Run()
     // Send the pending packets
     for (auto it = pending_packets_.begin(); it != pending_packets_.end();)
     {
-        if (it->times_sent_ > 10)
+        if (it->times_sent_ > 30)
         {
             LOGE("Packet failed to send after 10 attempts, dropping");
             pending_packets_.erase(it); // Update iterator after erase
             return;
         }
 
-        if (nerfnet::TimeNowUs() - it->last_time_sent_ > 30000) // 50 milliseconds
+        if (nerfnet::TimeNowUs() - it->last_time_sent_ > 80000) // 80 milliseconds
         {
             LOGW("Resending packet %d", it->packet.number);
             INCREMENT_STATS(&stats, ack_messages_resent);
