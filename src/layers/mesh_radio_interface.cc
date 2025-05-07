@@ -100,7 +100,7 @@ namespace nerfnet
     {
       reading_pipe_addresses_[i] = base_address_ + (node_id_ << 8) + i;
       radio_.openReadingPipe(i, reading_pipe_addresses_[i]);
-      //LOGI("Opened reading pipe %d: 0x%X", i, reading_pipe_addresses_[i]);
+      // LOGI("Opened reading pipe %d: 0x%X", i, reading_pipe_addresses_[i]);
     }
     SleepUs(1000);
     radio_.startListening();
@@ -124,7 +124,7 @@ namespace nerfnet
       GenericPacket received_packet;
       std::memset(&received_packet, 0, sizeof(received_packet));
       INCREMENT_STATS(&stats, radio_packets_received);
-      radio_.read(reinterpret_cast<uint8_t *>(&received_packet), sizeof(received_packet));
+      radio_.read(reinterpret_cast<uint8_t *>(&received_packet), 32);
       if (!ValidateChecksum(received_packet))
       {
         LOGE("Invalid checksum");
@@ -208,18 +208,18 @@ namespace nerfnet
 
   void MeshRadioInterface::HandleDiscoveryPacket(const DiscoveryPacket &packet)
   {
-    //LOGI("Received discovery packet from 0x%X", packet.source_node_id);
+    // LOGI("Received discovery packet from 0x%X", packet.source_node_id);
 
     if (radio_state_ == Discovery)
     {
       if (packet.source_node_id == node_id_)
       {
-        //LOGI("Received discovery from self, ignoring");
+        // LOGI("Received discovery from self, ignoring");
         return;
       }
       if (packet.source_node_id < node_id_)
       {
-        //LOGI("Received discovery from node 0x%X, but this node is lower than me, resetting discovery counter", packet.source_node_id);
+        // LOGI("Received discovery from node 0x%X, but this node is lower than me, resetting discovery counter", packet.source_node_id);
         discovery_message_timer_ = 0;
         number_of_discovery_messages_sent_ = 0;
         return;
@@ -250,7 +250,7 @@ namespace nerfnet
       }
     }
     InsertChecksum(*reinterpret_cast<GenericPacket *>(ack_packet));
-    //LOGI("Sending discovery ack packet to 0x%X", packet_frame.remote_pipe_address);
+    // LOGI("Sending discovery ack packet to 0x%X", packet_frame.remote_pipe_address);
     packets_to_send_.emplace_back(packet_frame);
     return;
   }
@@ -307,8 +307,6 @@ namespace nerfnet
     if (TimeNowUs() - last_listen_time_us_ < min_listen_time_us_)
       return;
 
-    radio_.stopListening();
-
     std::optional<PacketFrame> packet1 = std::nullopt;
     std::optional<PacketFrame> packet2 = std::nullopt;
     std::optional<PacketFrame> packet3 = std::nullopt;
@@ -331,7 +329,7 @@ namespace nerfnet
 
     if (!packet1 && !packet2 && !packet3)
     {
-      radio_.startListening();
+      // radio_.startListening();
       last_listen_time_us_ = TimeNowUs();
       return;
     }
@@ -342,18 +340,21 @@ namespace nerfnet
       radio_.openWritingPipe(writing_pipe_address_);
       LOGI("Opened writing pipe: 0x%X", writing_pipe_address_);
     }
-
+    uint32_t start_time = TimeNowUs();
+    radio_.stopListening();
     radio_.flush_tx();
-
-    if (packet1){
+    if (packet1)
+    {
       INCREMENT_STATS(&stats, radio_packets_sent);
       radio_.writeFast(packet1->data, 32);
     }
-    if (packet2){
+    if (packet2)
+    {
       INCREMENT_STATS(&stats, radio_packets_sent);
       radio_.writeFast(packet2->data, 32);
     }
-    if (packet3){
+    if (packet3)
+    {
       INCREMENT_STATS(&stats, radio_packets_sent);
       radio_.writeFast(packet3->data, 32);
     }
@@ -361,10 +362,20 @@ namespace nerfnet
     if (!radio_.txStandBy())
     {
       LOGE("Failed to write packet (timeout)");
+      last_listen_time_us_ = TimeNowUs() - 100;
+    }
+    else
+    {
+      last_listen_time_us_ = TimeNowUs();
     }
 
     radio_.startListening();
-    last_listen_time_us_ = TimeNowUs();
+
+    uint32_t time_elapsed = last_listen_time_us_ - start_time;
+    if (packet1 && packet2 && packet3)
+    {
+      //LOGI("Sent 3 packets in %d us", time_elapsed);
+    }
   }
 
   void MeshRadioInterface::ReceiveFromUpstream(const std::vector<uint8_t> &data)
@@ -379,9 +390,9 @@ namespace nerfnet
       DataPacket *data_packet = reinterpret_cast<DataPacket *>(&packet.data[0]);
       *data_packet = outgoing_packet;
       CHECK(data_packet->packet_type == (uint8_t)PacketType::Data || data_packet->packet_type == (uint8_t)PacketType::DataAck,
-      "Type must be data of ack data");
-      //data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
-      // data_packet->source_id = node_id_;
+            "Type must be data of ack data");
+      // data_packet->packet_type = static_cast<uint8_t>(PacketType::Data);
+      //  data_packet->source_id = node_id_;
       InsertChecksum(*reinterpret_cast<GenericPacket *>(data_packet));
       // LOGI("Packet: %d bytes, final: %d", data_packet->valid_bytes, data_packet->final_packet);
       // LOGI("First few bytes of packet: %02X %02X %02X %02X %02X",

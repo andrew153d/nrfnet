@@ -27,7 +27,7 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
-
+#include "nrftime.h"
 // ANSI color codes
 #define COLOR_RESET "\033[0m"
 #define COLOR_RED "\033[31m"
@@ -36,164 +36,189 @@
 #define COLOR_CYAN "\033[36m"
 #define COLOR_WHITE "\033[37m"
 
-#define NUM_LINES_LOGGED 10
-//#define ENABLE_TABLE_PRINTING
-
-// Forward declaration for table printing
-struct Stats;
-void print_stats_table(const Stats *stats);
-
-struct Stats
-{
-  uint32_t packets_sent = 0;
-  uint32_t packets_received = 0;
-  uint32_t fragments_sent = 0;
-  uint32_t fragments_received = 0;
-  uint32_t ack_messages_sent = 0;
-  uint32_t ack_messages_received = 0;
-  uint32_t ack_messages_resent = 0;
-  uint32_t radio_packets_sent = 0;
-  uint32_t radio_packets_received = 0;
-  std::deque<std::string> messages;
-  // Call this after updating any stat
-  void update_and_print() const
-  {
-    print_stats_table(this);
-  }
-};
-
-extern Stats stats;
+#define NUM_LINES_LOGGED 20
+#define ENABLE_TABLE_PRINTING
 
 // Clear the console and move cursor to top-left
 #define CLEAR_SCREEN() printf("\033[2J\033[H")
 
-// Thread-safe print queue
-struct PrintJob
+namespace Logger
 {
-  std::string content;
-};
-
-class PrintManager
-{
-public:
-  PrintManager() : stop_thread(false)
+  struct Statistics
   {
-    print_thread = std::thread(&PrintManager::process_queue, this);
-  }
+    uint32_t packets_sent = 0;
+    uint32_t packets_received = 0;
+    uint32_t fragments_sent = 0;
+    uint32_t fragments_received = 0;
+    uint32_t ack_messages_sent = 0;
+    uint32_t ack_messages_received = 0;
+    uint32_t ack_messages_resent = 0;
+    uint32_t radio_packets_sent = 0;
+    uint32_t radio_packets_received = 0;
+    float error_rate = 0.0f;
+    std::deque<std::string> messages;
+  };
 
-  ~PrintManager()
+  class LogPrinter
   {
+  public:
+    LogPrinter()
     {
-      std::lock_guard<std::mutex> lock(queue_mutex);
-      stop_thread = true;
+      thread_ = std::thread(&LogPrinter::log_thread, this);
+      printf(COLOR_GREEN "Logger thread started\n" COLOR_RESET);
     }
-    queue_cv.notify_all();
-    if (print_thread.joinable())
-    {
-      print_thread.join();
-    }
-  }
 
-  void enqueue(const std::string &content)
-  {
+    ~LogPrinter()
     {
-      std::lock_guard<std::mutex> lock(queue_mutex);
-      print_queue.push({content});
-    }
-    queue_cv.notify_one();
-  }
-
-private:
-  void process_queue()
-  {
-    while (true)
-    {
-      PrintJob job;
       {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-        queue_cv.wait(lock, [this]
-                      { return !print_queue.empty() || stop_thread; });
-        if (stop_thread && print_queue.empty())
-        {
-          break;
-        }
-        job = print_queue.front();
-        print_queue.pop();
+        std::lock_guard<std::mutex> lock(mutex_);
+        stop_thread_ = true;
       }
-      printf("%s", job.content.c_str());
+      cv_.notify_all();
+      if (thread_.joinable())
+      {
+        thread_.join();
+      }
     }
-  }
 
-  std::thread print_thread;
-  std::queue<PrintJob> print_queue;
-  std::mutex queue_mutex;
-  std::condition_variable queue_cv;
-  bool stop_thread;
-};
+    void log_thread()
+    {
+      while (true)
+      {
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          cv_.wait_for(lock, std::chrono::milliseconds(500));
 
-// Global print manager instance
-static PrintManager print_manager;
+          if (stop_thread_)
+          {
+            break;
+          }
 
-// Updated print_stats_table to enqueue print jobs
-inline void print_stats_table(const Stats *stats)
-{
-  if (!stats)
-    return;
-  std::string output;
-  output += COLOR_GREEN "=============== Stats Table ==============" COLOR_RESET "\n";
-  output += "|------------------------|---------------|\n";
-  char line[64];
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Packets Sent", stats->packets_sent);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Packets Received", stats->packets_received);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Fragments Sent", stats->fragments_sent);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Fragments Received", stats->fragments_received);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Ack Messages Sent", stats->ack_messages_sent);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Ack Messages Received", stats->ack_messages_received);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Ack Messages Resent", stats->ack_messages_resent);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Radio Packets Sent", stats->radio_packets_sent);
-  output += line;
-  snprintf(line, sizeof(line), "| %-22s | %-13u |\n", "Radio Packets Received", stats->radio_packets_received);
-  output += line;
-  output += COLOR_GREEN "==========================================\n" COLOR_RESET;
-  for (const auto &msg : stats->messages)
-  {
-    output += COLOR_WHITE + msg + "\n" + COLOR_RESET;
-  }
-  print_manager.enqueue(output);
+          while (log_queue_.size() > NUM_LINES_LOGGED)
+          {
+            log_queue_.pop_front();
+          }
+
+          // Run the error rate calculation every 100ms
+          while (error_times_.size() > 0 && error_times_.front() < nerfnet::TimeNowUs() - 1000000) // The number of errors in the last second
+          {
+            error_times_.pop_front();
+          }
+          float alpha = 0.1f;
+          stats.error_rate = (1.0f - alpha) * stats.error_rate + alpha * static_cast<float>(error_times_.size());
+
+          std::string string_message = "";
+
+            // Print the top lines of the table
+            string_message += "┌──────────────────────────────────────────┐\n";
+            string_message += "│           Statistics Table               │\n";
+            string_message += "├──────────────────────────────┬───────────┤\n";
+            char buffer[256];
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packets Sent", stats.packets_sent);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Packets Received", stats.packets_received);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Fragments Sent", stats.fragments_sent);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Fragments Received", stats.fragments_received);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Sent", stats.ack_messages_sent);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Received", stats.ack_messages_received);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Ack Messages Resent", stats.ack_messages_resent);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Radio Packets Sent", stats.radio_packets_sent);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10u│\n", "Radio Packets Received", stats.radio_packets_received);
+            string_message += buffer;
+            snprintf(buffer, sizeof(buffer), "│ %-28s │ %-10.2f│\n", "Error Rate", stats.error_rate);
+            string_message += buffer;
+            string_message += "└──────────────────────────────┴───────────┘\n";
+
+          for (const auto &message : log_queue_)
+          {
+            string_message += message;
+            string_message += "\n";
+          }
+
+          CLEAR_SCREEN();
+
+          printf("%s", string_message.c_str());
+        }
+      }
+      printf(COLOR_RED "Logger thread exiting\n" COLOR_RESET);
+    }
+
+    void print()
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      // while(log_queue_.size() > NUM_LINES_LOGGED)
+      // {
+      //   log_queue_.pop_front();
+      // }
+      CLEAR_SCREEN();
+      for (const auto &message : log_queue_)
+      {
+        printf("%s\n", message.c_str());
+      }
+    }
+
+    void update()
+    {
+      // std::lock_guard<std::mutex> lock(mutex_);
+      // print();
+    }
+
+    void log(const std::string &message)
+    {
+
+      std::lock_guard<std::mutex> lock(mutex_);
+      log_queue_.push_back(message);
+      if (message.find(COLOR_RED) != std::string::npos)
+      {
+        error_times_.push_back(nerfnet::TimeNowUs());
+      }
+      cv_.notify_all();
+    }
+
+    std::thread thread_;
+    std::deque<std::string> log_queue_;
+    std::deque<std::uint64_t> error_times_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool stop_thread_ = false;
+    Statistics stats;
+  };
+
 }
+extern Logger::LogPrinter logger;
 
 // Helper macros to update stats and print table
 #ifdef ENABLE_TABLE_PRINTING
 #define UPDATE_STATS(stats_ptr, field, value) \
   do                                          \
   {                                           \
-    (stats_ptr)->field = (value);             \
-    print_stats_table(stats_ptr);             \
+    logger.stats.field = (value);             \
+    logger.update();                          \
   } while (0)
 
 #define INCREMENT_STATS(stats_ptr, field) \
   do                                      \
   {                                       \
-    ++((stats_ptr)->field);               \
-    print_stats_table(stats_ptr);         \
+    ++(logger.stats.field);               \
+    logger.update();                      \
   } while (0)
 #else
 #define UPDATE_STATS(stats_ptr, field, value) \
   do                                          \
   {                                           \
-    (stats_ptr)->field = (value);             \
+    logger.stats.field = (value);             \
   } while (0)
 #define INCREMENT_STATS(stats_ptr, field) \
   do                                      \
   {                                       \
-    ++((stats_ptr)->field);               \
+    ++(logger.stats.field);               \
   } while (0)
 #endif
 
@@ -219,23 +244,18 @@ inline void print_stats_table(const Stats *stats)
 #define LOG(color, fmt, ...)                                             \
   do                                                                     \
   {                                                                      \
-    if (stats.messages.size() >= NUM_LINES_LOGGED)                       \
-    {                                                                    \
-      stats.messages.pop_front();                                        \
-    }                                                                    \
     char buffer[256];                                                    \
     snprintf(buffer, sizeof(buffer), fmt, ##__VA_ARGS__);                \
     std::string colored_msg = std::string(color) + buffer + COLOR_RESET; \
-    stats.messages.push_back(colored_msg);                               \
-    print_stats_table(&stats);                                           \
+    logger.log(colored_msg);                                             \
   } while (0)
 #else
-#define LOG(color, fmt, ...)                                             \
-  do                                                                     \
-  {                                                                      \
-    char buffer[256];                                                    \
-    snprintf(buffer, sizeof(buffer), fmt, ##__VA_ARGS__);                \
-    printf("%s%s%s\n", color, buffer, COLOR_RESET);                      \
+#define LOG(color, fmt, ...)                              \
+  do                                                      \
+  {                                                       \
+    char buffer[256];                                     \
+    snprintf(buffer, sizeof(buffer), fmt, ##__VA_ARGS__); \
+    printf("%s%s%s\n", color, buffer, COLOR_RESET);       \
   } while (0)
 #endif
 

@@ -29,7 +29,7 @@ void AckLayer::ReceiveFromDownstream(const std::vector<uint8_t> &data)
     case static_cast<uint8_t>(PacketType::Data):
     {
         // Handle data packet
-        LOGI("Received packet %d", packet.number);
+        //LOGI("Received packet %d", packet.number);
         SendUpstream(data);
         // Send an ack packet back
         DataPacket ack_packet = packet;
@@ -41,7 +41,7 @@ void AckLayer::ReceiveFromDownstream(const std::vector<uint8_t> &data)
     case static_cast<uint8_t>(PacketType::DataAck):
     {
         // Handle ack packet
-        LOGI("Received ack packet for packet %d", packet.number);
+        //LOGI("Received ack packet for packet %d", packet.number);
 
         auto it = std::find_if(pending_packets_.begin(), pending_packets_.end(),
                                [&packet](const AckPacket &pending)
@@ -86,7 +86,7 @@ void AckLayer::Run()
         AckPacket ack_packet;
         ack_packet.packet = packet;
         ack_packet.packet.number = packet_number_++;
-        LOGI("Adding packet %d to pending queue", ack_packet.packet.number);
+        //LOGI("Adding packet %d to pending queue", ack_packet.packet.number);
         INCREMENT_STATS(&stats, ack_messages_sent);
         SendDownstream(DataPacketToVector(ack_packet.packet));
         ack_packet.last_time_sent_ = nerfnet::TimeNowUs();
@@ -99,14 +99,14 @@ void AckLayer::Run()
     {
         if (it->times_sent_ > 10)
         {
-            LOGE("Packet failed to send after 3 attempts, dropping");
+            LOGE("Packet failed to send after 10 attempts, dropping");
             pending_packets_.erase(it); // Update iterator after erase
             return;
         }
 
-        if (nerfnet::TimeNowUs() - it->last_time_sent_ > 20000) // 1 second
+        if (nerfnet::TimeNowUs() - it->last_time_sent_ > 30000) // 50 milliseconds
         {
-            LOGI("Sending packet %d", it->packet.number);
+            LOGW("Resending packet %d", it->packet.number);
             INCREMENT_STATS(&stats, ack_messages_resent);
             SendDownstream(DataPacketToVector(it->packet));
             it->last_time_sent_ = nerfnet::TimeNowUs();

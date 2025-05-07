@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <optional>
-
+#include "log.h"
 enum class RadioMode
 {
     NotSet,
