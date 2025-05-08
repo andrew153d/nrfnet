@@ -41,8 +41,6 @@ namespace nerfnet
     // Runs the interface
     void Run();
 
-    
-
   private:
     // The radio interface
     RF24 radio_;
@@ -59,7 +57,7 @@ namespace nerfnet
 #pragma region Discovery
 
     // The rate at which the radio will send discovery messages.
-    const uint64_t discovery_message_rate_us_ = 100000; // 100ms
+    const uint64_t discovery_message_rate_us_ = 1000000; // 1000ms
 
     // The number of time the radio will send discovery messages before giving up
     const uint8_t max_discovery_messages_ = 3;
@@ -79,10 +77,10 @@ namespace nerfnet
 #pragma endregion
 
     // The minimum time the radio will be in a listening state
-    const uint64_t min_listen_time_us_ = 2000; // 4ms
+    const uint64_t continuous_listen_time_us_ = 10000; // 10ms
 
-    // The last time the radio was put into a listening state
-    uint64_t last_listen_time_us_ = 0;
+    // The minimum time the radio will be in a listening state
+    const uint64_t send_receive_period_us_ = 5000; // 5ms
 
     // The base address for all the radio pipes.
     const uint32_t base_address_ = 0xFFAB0000;
@@ -101,14 +99,27 @@ namespace nerfnet
     // All nodes below are considered as non-discovery nodes.
     const uint8_t min_discovery_node_id_ = 101;
 
-    enum RadioState
+    enum CommsState
     {
+      CommsNone,
+      Timing,
       Discovery,
-      Listening,
-      Sending,
+      Running,
     };
 
-    RadioState radio_state_ = Discovery;
+    enum RadioState
+    {
+      RadioNone,
+      Listening,
+      Sending,
+      Continuous
+    };
+
+    CommsState comms_state_ = CommsNone;
+    RadioState radio_state = RadioNone;
+
+    uint64_t last_state_change_time_ = 0;
+
     uint64_t discovery_message_timer_ = 0;
 
 #pragma region PacketDefenitions
@@ -121,7 +132,7 @@ namespace nerfnet
     };
     static_assert(sizeof(GenericPacket) == 32, "GenericPacket size must be 32 bytes");
 
-    struct DiscoveryPacket
+    struct __attribute__((packed)) DiscoveryPacket
     {
       uint8_t checksum : 4;
       uint8_t packet_type : 4;
@@ -131,7 +142,7 @@ namespace nerfnet
     };
     static_assert(sizeof(DiscoveryPacket) == 32, "DiscoveryPacket size must be 32 bytes");
 
-    struct DiscoveryAckPacket
+    struct __attribute__((packed)) DiscoveryAckPacket
     {
       uint8_t checksum : 4;
       uint8_t packet_type : 4;
@@ -140,9 +151,17 @@ namespace nerfnet
       uint8_t neighbors[29];
     };
     static_assert(sizeof(DiscoveryAckPacket) == 32, "DiscoveryAckPacket size must be 32 bytes");
-
-#pragma endregion
-
+    
+    struct __attribute__((packed)) TimeSynchPacket
+    {
+      uint8_t checksum : 4;
+      uint8_t packet_type : 4;
+      uint8_t source_node_id;
+      uint64_t time_sending_left;
+      uint8_t padding[22];
+    };
+    static_assert(sizeof(TimeSynchPacket) == 32, "TimeSynchPacket size must be 32 bytes");
+    
     struct PacketFrame
     {
       uint8_t packet_type;
@@ -150,31 +169,37 @@ namespace nerfnet
       uint32_t remote_pipe_address;
       uint8_t data[32];
     };
+#pragma endregion
 
     std::deque<PacketFrame> packets_to_send_;
 
-    // The interval between poll operations to the secondary radio.
-    const uint64_t poll_interval_us_;
-
-    // Logic for poll backoff when the secondary radio is not responding.
-    int poll_fail_count_;
-    uint64_t current_poll_interval_us_;
-    bool connection_reset_required_;
-
     void SetNodeId(uint8_t node_id);
+
     void SetRadioState(RadioState state);
+    void SetCommsState(CommsState state);
+    // The last time the radio was put into a listening state, used in the continuous sender receiver
+    uint64_t continuous_comms_last_change_time_us_ = 0;
+
+    //This function will listen for atleast listen_time_us_ before sending three packets from packets_to_send_;
+    void ContinuousSenderReceiver();
+
 
     void Sender();
+    void Receiver();
 
     void DiscoveryTask();
+
+
+    void TimingTask();
+    
     void HandleDiscoveryPacket(const DiscoveryPacket &packet);
     void HandleDiscoveryAckPacket(const DiscoveryAckPacket &packet);
-    void SendNodeIdAnnouncement();
     void HandleNodeIdAnnouncementPacket(const DiscoveryPacket &packet);
+    
+    void SendNodeIdAnnouncement();
 
-
-    void ReceiveFromDownstream(const std::vector<uint8_t>& data) override {}
-    void ReceiveFromUpstream(const std::vector<uint8_t>& data) override;
+    void ReceiveFromDownstream(const std::vector<uint8_t> &data) override {}
+    void ReceiveFromUpstream(const std::vector<uint8_t> &data) override;
 
     void Reset() override;
 

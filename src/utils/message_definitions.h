@@ -23,6 +23,9 @@ enum class PacketType
     NodeIdAnnouncement,
     Data,
     DataAck,
+    Status,
+    TimeSynch,
+    TimeSynchAck,
 };
 
 union DataPacket

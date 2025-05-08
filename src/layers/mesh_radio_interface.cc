@@ -31,9 +31,6 @@ namespace nerfnet
       uint32_t primary_addr, uint32_t secondary_addr, uint8_t channel,
       uint64_t poll_interval_us)
       : radio_(ce_pin, 0),
-        poll_interval_us_(poll_interval_us),
-        current_poll_interval_us_(poll_interval_us_),
-        connection_reset_required_(true),
         ce_pin_(ce_pin),
         channel_(channel)
   {
@@ -74,6 +71,9 @@ namespace nerfnet
 
     radio_.flush_rx();
     radio_.flush_tx();
+
+    SetRadioState(RadioState::RadioNone);
+    SetCommsState(CommsState::Timing);
   }
 
   // Method of operation
@@ -108,49 +108,155 @@ namespace nerfnet
 
   void MeshRadioInterface::SetRadioState(RadioState state)
   {
-    if (state == Listening && radio_state_ == Discovery)
+    if (state == radio_state)
+      return;
+    last_state_change_time_ = TimeNowUs();
+    switch (state)
     {
+    case RadioNone:
+      LOGI("Setting radio state to RadioNone");
+      break;
+    case Listening:
+      //LOGI("Setting radio state to Listening");
+      break;
+    case Sending:
+      //LOGI("Setting radio state to Sending");
+      break;
+    case Continuous:
+      LOGI("Setting radio state to Continuous");
+      break;
+    default:
+      CHECK(false, "Unknown comms state");
+      break;
     }
-    radio_state_ = state;
+    radio_state = state;
+  }
+
+  void MeshRadioInterface::SetCommsState(CommsState state)
+  {
+    if (state == comms_state_)
+      return;
+    last_state_change_time_ = TimeNowUs();
+    switch (state)
+    {
+      case CommsNone:
+      LOGI("Setting comms state to CommsNone");
+      break;
+    case Timing:
+      LOGI("Setting comms state to Timing");
+      break;
+    case Discovery:
+      LOGI("Setting comms state to Discovery");
+      break;
+    case Running:
+      LOGI("Setting comms state to Running");
+      break;
+    default:
+      CHECK(false, "Unknown comms state");
+      break;
+    }
+    comms_state_ = state;
   }
 
   void MeshRadioInterface::Run()
   {
-    DiscoveryTask();
-    Sender();
+    switch (radio_state)
+    {
+    case Listening:
+      Receiver();
+      break;
+    case Sending:
+      Sender();
+      break;
+    case Continuous:
+      ContinuousSenderReceiver();
+      break;
+    case RadioNone:
+      // Do nothing
+      break;
+    default:
+      CHECK(false, "Unknown radio state");
+      break;
+    };
 
+    switch (comms_state_)
+    {
+    case Timing:
+      TimingTask();
+      break;
+    case Discovery:
+      DiscoveryTask();
+      break;
+    case Running:
+      break;
+    case CommsNone:
+      // Do nothing
+      break;
+    default:
+    {
+      CHECK(false, "Unknown comms state");
+    }
+    break;
+    };
+  }
+
+  void MeshRadioInterface::TimingTask()
+  {
+    if (TimeNowUs() - last_state_change_time_ > 5000000) // Wait for 3 seconds without a timing packet
+    {
+      LOGW("No timing messages received, going to discovery state");
+      SetCommsState(Discovery);
+      SetRadioState(Listening);
+    }
+
+    if (TimeNowUs() - discovery_message_timer_ > 1000000)
+    {
+      discovery_message_timer_ = TimeNowUs();
+      radio_.stopListening();
+      radio_.openWritingPipe(reading_pipe_addresses_[0]);
+      radio_.flush_tx();
+      radio_.flush_rx();
+      TimeSynchPacket time_synch_packet;
+      std::memset(&time_synch_packet, 0, sizeof(time_synch_packet));
+      time_synch_packet.packet_type = static_cast<uint8_t>(PacketType::TimeSynch);
+      time_synch_packet.source_node_id = node_id_;
+      time_synch_packet.time_sending_left = 0;
+      time_synch_packet.checksum = CalculateChecksum(*reinterpret_cast<GenericPacket *>(&time_synch_packet));
+      radio_.writeFast(reinterpret_cast<uint8_t *>(&time_synch_packet), sizeof(time_synch_packet));
+      radio_.txStandBy();
+      radio_.startListening();
+    }
     if (radio_.available())
     {
-      GenericPacket received_packet;
-      std::memset(&received_packet, 0, sizeof(received_packet));
-      INCREMENT_STATS(&stats, radio_packets_received);
-      radio_.read(reinterpret_cast<uint8_t *>(&received_packet), 32);
-      if (!ValidateChecksum(received_packet))
+      uint8_t buffer[32];
+      radio_.read(buffer, sizeof(buffer));
+      // Process the received packet
+      GenericPacket *received_packet = reinterpret_cast<GenericPacket *>(buffer);
+      if (!ValidateChecksum(*received_packet))
       {
         LOGE("Invalid checksum");
         radio_.flush_rx();
         return;
       }
-      switch ((PacketType)received_packet.packet_type)
+      // Process the received packet
+      switch (received_packet->packet_type)
       {
-      case PacketType::Discovery:
-        HandleDiscoveryPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+      case static_cast<uint8_t>(PacketType::TimeSynch):
+        LOGI("Received timing packet");
         break;
-      case PacketType::DiscoverResponse:
-        HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
-        break;
-      case PacketType::Data:
-      case PacketType::DataAck:
+      case static_cast<uint8_t>(PacketType::TimeSynchAck):
       {
-        DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
-        SendUpstream(DataPacketToVector(*data_packet));
+        TimeSynchPacket *time_synch_ack_packet = reinterpret_cast<TimeSynchPacket *>(buffer);
+        LOGI("Received timing ack packet with time of %llu", time_synch_ack_packet->time_sending_left);
+        SetCommsState(Discovery);
+        // Other radio is listening right now
+        SetRadioState(Sending);
+        // This should align the send and receive time slots for the two devices
+        last_state_change_time_ = TimeNowUs() + time_synch_ack_packet->time_sending_left - send_receive_period_us_;
         break;
       }
-      case PacketType::NodeIdAnnouncement:
-        HandleNodeIdAnnouncementPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
-        break;
       default:
-        LOGE("Unknown packet type: %d", received_packet.packet_type);
+        LOGW("Timing Handler received unknown packet type");
         break;
       }
     }
@@ -158,17 +264,16 @@ namespace nerfnet
 
   void MeshRadioInterface::DiscoveryTask()
   {
-    if (TimeNowUs() - discovery_message_timer_ > discovery_message_rate_us_ && radio_state_ == Discovery)
+    if (TimeNowUs() - discovery_message_timer_ > discovery_message_rate_us_ && comms_state_ == Discovery)
     {
       discovery_message_timer_ = TimeNowUs();
 
       if (number_of_discovery_messages_sent_ > max_discovery_messages_ && discovery_ack_received_time_us_ == 0)
       {
         LOGI("No neighbors found, setting up node id to 0");
-
         SetNodeId(0);
-
-        radio_state_ = Listening;
+        SetRadioState(Listening);
+        SetCommsState(Running);
         return;
       }
 
@@ -197,6 +302,7 @@ namespace nerfnet
             LOGI("Setting up node id to 0x%X", node_id_);
             discovery_ack_received_time_us_ = 0;
             SetRadioState(Listening);
+            SetCommsState(Running);
             return;
           }
         }
@@ -208,9 +314,9 @@ namespace nerfnet
 
   void MeshRadioInterface::HandleDiscoveryPacket(const DiscoveryPacket &packet)
   {
-    // LOGI("Received discovery packet from 0x%X", packet.source_node_id);
+    LOGI("Received discovery packet from 0x%X", packet.source_node_id);
 
-    if (radio_state_ == Discovery)
+    if (comms_state_ == Discovery)
     {
       if (packet.source_node_id == node_id_)
       {
@@ -286,7 +392,6 @@ namespace nerfnet
     LOGI("Added node id 0x%X to neighbor list", packet.source_node_id);
   }
 
-  // Announce the node id to the network
   void MeshRadioInterface::SendNodeIdAnnouncement()
   {
     PacketFrame packet;
@@ -300,11 +405,82 @@ namespace nerfnet
     packets_to_send_.emplace_back(packet);
   }
 
+  void MeshRadioInterface::Receiver()
+  {
+    if (nerfnet::TimeNowUs() - last_state_change_time_ > send_receive_period_us_)
+    {
+      SetRadioState(Sending);
+      return;
+    }
+
+    if (radio_.available())
+    {
+      GenericPacket received_packet;
+      std::memset(&received_packet, 0, sizeof(received_packet));
+      INCREMENT_STATS(&stats, radio_packets_received);
+      radio_.read(reinterpret_cast<uint8_t *>(&received_packet), 32);
+
+      if (!ValidateChecksum(received_packet))
+      {
+        LOGE("Invalid checksum");
+        radio_.flush_rx();
+        return;
+      }
+
+      switch ((PacketType)received_packet.packet_type)
+      {
+      case PacketType::Discovery:
+        HandleDiscoveryPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+        break;
+      case PacketType::DiscoverResponse:
+        HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
+        break;
+      case PacketType::Data:
+      case PacketType::DataAck:
+      {
+        DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
+        SendUpstream(DataPacketToVector(*data_packet));
+        break;
+      }
+      case PacketType::NodeIdAnnouncement:
+        HandleNodeIdAnnouncementPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+        break;
+      case PacketType::Status:
+      {
+        LOGW("Received status packet");
+      }
+      case PacketType::TimeSynch:
+        LOGI("Received time synch packet");
+        radio_.stopListening();
+        radio_.flush_tx();
+        TimeSynchPacket time_synch_ack_packet;
+        std::memset(&time_synch_ack_packet, 0, sizeof(time_synch_ack_packet));
+        time_synch_ack_packet.packet_type = static_cast<uint8_t>(PacketType::TimeSynchAck);
+        time_synch_ack_packet.source_node_id = node_id_;
+        time_synch_ack_packet.time_sending_left = (uint64_t)((float)last_state_change_time_ + (float)send_receive_period_us_ - (float)TimeNowUs());
+        time_synch_ack_packet.checksum = CalculateChecksum(*reinterpret_cast<GenericPacket *>(&time_synch_ack_packet));
+        radio_.writeFast(reinterpret_cast<uint8_t *>(&time_synch_ack_packet), sizeof(time_synch_ack_packet));
+        radio_.txStandBy();
+        radio_.startListening();
+        break;
+      case PacketType::TimeSynchAck:
+        LOGI("Received time synch ack packet");
+        break;
+      default:
+        LOGE("Unknown packet type: %d", received_packet.packet_type);
+        break;
+      }
+    }
+  }
+
   void MeshRadioInterface::Sender()
   {
-    if (packets_to_send_.empty())
+    if (nerfnet::TimeNowUs() - last_state_change_time_ > send_receive_period_us_)
+    {
+      SetRadioState(Listening);
       return;
-    if (TimeNowUs() - last_listen_time_us_ < min_listen_time_us_)
+    }
+    if (packets_to_send_.empty())
       return;
 
     std::optional<PacketFrame> packet1 = std::nullopt;
@@ -330,7 +506,7 @@ namespace nerfnet
     if (!packet1 && !packet2 && !packet3)
     {
       // radio_.startListening();
-      last_listen_time_us_ = TimeNowUs();
+      continuous_comms_last_change_time_us_ = TimeNowUs();
       return;
     }
 
@@ -362,25 +538,145 @@ namespace nerfnet
     if (!radio_.txStandBy())
     {
       LOGE("Failed to write packet (timeout)");
-      last_listen_time_us_ = TimeNowUs() - 100;
+      continuous_comms_last_change_time_us_ = TimeNowUs() - 100;
     }
     else
     {
-      last_listen_time_us_ = TimeNowUs();
+      continuous_comms_last_change_time_us_ = TimeNowUs();
     }
 
     radio_.startListening();
 
-    uint32_t time_elapsed = last_listen_time_us_ - start_time;
+    uint32_t time_elapsed = continuous_comms_last_change_time_us_ - start_time;
     if (packet1 && packet2 && packet3)
     {
-      //LOGI("Sent 3 packets in %d us", time_elapsed);
+      // LOGI("Sent 3 packets in %d us", time_elapsed);
+    }
+  }
+
+  void MeshRadioInterface::ContinuousSenderReceiver()
+  {
+
+    // Receiver
+    if (radio_.available())
+    {
+      GenericPacket received_packet;
+      std::memset(&received_packet, 0, sizeof(received_packet));
+      INCREMENT_STATS(&stats, radio_packets_received);
+      radio_.read(reinterpret_cast<uint8_t *>(&received_packet), 32);
+      if (!ValidateChecksum(received_packet))
+      {
+        LOGE("Invalid checksum");
+        radio_.flush_rx();
+        return;
+      }
+      switch ((PacketType)received_packet.packet_type)
+      {
+      case PacketType::Discovery:
+        HandleDiscoveryPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+        break;
+      case PacketType::DiscoverResponse:
+        HandleDiscoveryAckPacket(*reinterpret_cast<DiscoveryAckPacket *>(&received_packet));
+        break;
+      case PacketType::Data:
+      case PacketType::DataAck:
+      {
+        DataPacket *data_packet = reinterpret_cast<DataPacket *>(&received_packet);
+        SendUpstream(DataPacketToVector(*data_packet));
+        break;
+      }
+      case PacketType::NodeIdAnnouncement:
+        HandleNodeIdAnnouncementPacket(*reinterpret_cast<DiscoveryPacket *>(&received_packet));
+        break;
+      case PacketType::Status:
+      {
+        LOGW("Received status packet");
+      }
+      default:
+        LOGE("Unknown packet type: %d", received_packet.packet_type);
+        break;
+      }
+    }
+    // Sender
+    if (packets_to_send_.empty())
+      return;
+    if (TimeNowUs() - continuous_comms_last_change_time_us_ < continuous_listen_time_us_)
+      return;
+
+    std::optional<PacketFrame> packet1 = std::nullopt;
+    std::optional<PacketFrame> packet2 = std::nullopt;
+    std::optional<PacketFrame> packet3 = std::nullopt;
+
+    if (!packets_to_send_.empty())
+    {
+      packet1 = packets_to_send_.front();
+      packets_to_send_.pop_front();
+    }
+    if (!packets_to_send_.empty() && packets_to_send_.front().remote_pipe_address == packet1->remote_pipe_address)
+    {
+      packet2 = packets_to_send_.front();
+      packets_to_send_.pop_front();
+    }
+    if (!packets_to_send_.empty() && packets_to_send_.front().remote_pipe_address == packet1->remote_pipe_address)
+    {
+      packet3 = packets_to_send_.front();
+      packets_to_send_.pop_front();
+    }
+
+    if (!packet1 && !packet2 && !packet3)
+    {
+      continuous_comms_last_change_time_us_ = TimeNowUs();
+      return;
+    }
+
+    if (packet1->remote_pipe_address != writing_pipe_address_)
+    {
+      writing_pipe_address_ = packet1->remote_pipe_address;
+      radio_.openWritingPipe(writing_pipe_address_);
+      LOGI("Opened writing pipe: 0x%X", writing_pipe_address_);
+    }
+    uint32_t start_time = TimeNowUs();
+    radio_.stopListening();
+    radio_.flush_tx();
+    if (packet1)
+    {
+      INCREMENT_STATS(&stats, radio_packets_sent);
+      radio_.writeFast(packet1->data, 32);
+    }
+    if (packet2)
+    {
+      INCREMENT_STATS(&stats, radio_packets_sent);
+      radio_.writeFast(packet2->data, 32);
+    }
+    if (packet3)
+    {
+      INCREMENT_STATS(&stats, radio_packets_sent);
+      radio_.writeFast(packet3->data, 32);
+    }
+
+    if (!radio_.txStandBy())
+    {
+      LOGE("Failed to write packet (timeout)");
+      continuous_comms_last_change_time_us_ = TimeNowUs() - 100;
+    }
+    else
+    {
+      continuous_comms_last_change_time_us_ = TimeNowUs();
+    }
+
+    radio_.startListening();
+
+    uint32_t time_elapsed = continuous_comms_last_change_time_us_ - start_time;
+    if (packet1 && packet2 && packet3)
+    {
+      // LOGI("Sent 3 packets in %d us", time_elapsed);
     }
   }
 
   void MeshRadioInterface::ReceiveFromUpstream(const std::vector<uint8_t> &data)
   {
-    // LOGI("Mesh Radio Received %zu bytes from upstream", data.size());
+    // return;
+    //  LOGI("Mesh Radio Received %zu bytes from upstream", data.size());
 
     if (!neighbor_node_ids_.empty())
     {
@@ -412,9 +708,9 @@ namespace nerfnet
     discovery_message_timer_ = 0;
     number_of_discovery_messages_sent_ = 0;
     discovery_ack_received_time_us_ = 0;
-    radio_state_ = Discovery;
+    SetCommsState(Discovery);
     writing_pipe_address_ = 0;
-    for(int i = 0; i < 5; i++)
+    for (int i = 0; i < 5; i++)
     {
       reading_pipe_addresses_[i] = 0;
     }
