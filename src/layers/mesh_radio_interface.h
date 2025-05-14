@@ -34,9 +34,16 @@ namespace nerfnet
   {
   public:
     // Setup the mesh radio link.
-    MeshRadioInterface(uint16_t ce_pin, int tunnel_fd,
-                       uint32_t primary_addr, uint32_t secondary_addr,
-                       uint8_t channel, uint64_t poll_interval_us);
+    MeshRadioInterface(uint16_t ce_pin,
+                       int tunnel_fd,
+                       uint32_t primary_addr,
+                       uint32_t secondary_addr,
+                       uint8_t channel,
+                       uint64_t poll_interval_us,
+                       uint32_t discovery_address,
+                       uint8_t power_level,
+                       bool lna,
+                       uint8_t data_rate);
 
     // Runs the interface
     void Run();
@@ -151,7 +158,7 @@ namespace nerfnet
       uint8_t neighbors[29];
     };
     static_assert(sizeof(DiscoveryAckPacket) == 32, "DiscoveryAckPacket size must be 32 bytes");
-    
+
     struct __attribute__((packed)) TimeSynchPacket
     {
       uint8_t checksum : 4;
@@ -161,7 +168,7 @@ namespace nerfnet
       uint8_t padding[22];
     };
     static_assert(sizeof(TimeSynchPacket) == 32, "TimeSynchPacket size must be 32 bytes");
-    
+
     struct PacketFrame
     {
       uint8_t packet_type;
@@ -180,22 +187,20 @@ namespace nerfnet
     // The last time the radio was put into a listening state, used in the continuous sender receiver
     uint64_t continuous_comms_last_change_time_us_ = 0;
 
-    //This function will listen for atleast listen_time_us_ before sending three packets from packets_to_send_;
+    // This function will listen for atleast listen_time_us_ before sending three packets from packets_to_send_;
     void ContinuousSenderReceiver();
-
 
     void Sender();
     void Receiver();
 
     void DiscoveryTask();
 
-
     void TimingTask();
-    
+
     void HandleDiscoveryPacket(const DiscoveryPacket &packet);
     void HandleDiscoveryAckPacket(const DiscoveryAckPacket &packet);
     void HandleNodeIdAnnouncementPacket(const DiscoveryPacket &packet);
-    
+
     void SendNodeIdAnnouncement();
 
     void ReceiveFromDownstream(const std::vector<uint8_t> &data) override {}

@@ -29,7 +29,11 @@ namespace nerfnet
   MeshRadioInterface::MeshRadioInterface(
       uint16_t ce_pin, int tunnel_fd,
       uint32_t primary_addr, uint32_t secondary_addr, uint8_t channel,
-      uint64_t poll_interval_us)
+      uint64_t poll_interval_us,
+      uint32_t discovery_address,
+      uint8_t power_level,
+      bool lna,
+      uint8_t data_rate)
       : radio_(ce_pin, 0),
         ce_pin_(ce_pin),
         channel_(channel)
@@ -39,8 +43,8 @@ namespace nerfnet
     CHECK(radio_.begin(), "Failed to start NRF24L01");
 
     radio_.setChannel(channel_);
-    radio_.setPALevel(RF24_PA_MAX);
-    radio_.setDataRate(RF24_2MBPS);
+    radio_.setPALevel(power_level, lna);
+    radio_.setDataRate((rf24_datarate_e)data_rate);
     radio_.setAddressWidth(3);
     radio_.enableDynamicPayloads();
     radio_.enableAckPayload();
@@ -72,8 +76,8 @@ namespace nerfnet
     radio_.flush_rx();
     radio_.flush_tx();
 
-    SetRadioState(RadioState::RadioNone);
-    SetCommsState(CommsState::Timing);
+    SetRadioState(RadioState::Continuous);
+    SetCommsState(CommsState::Discovery);
   }
 
   // Method of operation
@@ -117,10 +121,10 @@ namespace nerfnet
       LOGI("Setting radio state to RadioNone");
       break;
     case Listening:
-      //LOGI("Setting radio state to Listening");
+      // LOGI("Setting radio state to Listening");
       break;
     case Sending:
-      //LOGI("Setting radio state to Sending");
+      // LOGI("Setting radio state to Sending");
       break;
     case Continuous:
       LOGI("Setting radio state to Continuous");
@@ -139,7 +143,7 @@ namespace nerfnet
     last_state_change_time_ = TimeNowUs();
     switch (state)
     {
-      case CommsNone:
+    case CommsNone:
       LOGI("Setting comms state to CommsNone");
       break;
     case Timing:

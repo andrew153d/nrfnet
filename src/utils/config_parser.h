@@ -37,6 +37,11 @@ public:
     std::optional<uint64_t> poll_interval;
     std::optional<bool> enable_tunnel_logs;
     std::optional<uint16_t> ce_pin;
+    std::optional<uint32_t> discovery_address;
+    std::optional<uint8_t> power_level;
+    std::optional<bool> low_noise_amplifier;
+    std::optional<uint8_t> data_rate;
+    std::optional<uint8_t> address_width;
 
 private:
     // Get a value from the configuration file

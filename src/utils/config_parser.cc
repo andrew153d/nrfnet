@@ -74,6 +74,21 @@ void ConfigParser::load() {
     if(config.find("ce_pin") != config.end()) {
         ce_pin = std::stoi(get("ce_pin"));
     }
+    if(config.find("discovery_address") != config.end()) {
+        discovery_address = std::stoul(get("discovery_address"), nullptr, 16);
+    }
+    if(config.find("power_level") != config.end()) {
+        power_level = std::stoi(get("power_level"));
+    }
+    if(config.find("low_noise_amplifier") != config.end()) {
+        low_noise_amplifier = (get("low_noise_amplifier") == "true");
+    }
+    if(config.find("data_rate") != config.end()) {
+        data_rate = std::stoi(get("data_rate"));
+    }
+    if(config.find("address_width") != config.end()) {
+        address_width = std::stoi(get("address_width"));
+    }
 
     // Validate that all of the parameters are set
     if (!interface_name) {
@@ -99,6 +114,21 @@ void ConfigParser::load() {
     }
     if (!ce_pin) {
         throw std::runtime_error("Missing required parameter: ce_pin");
+    }
+    if (!discovery_address) {
+        throw std::runtime_error("Missing required parameter: discovery_address");
+    }
+    if (!power_level) {
+        throw std::runtime_error("Missing required parameter: power_level");
+    }
+    if (!low_noise_amplifier) {
+        throw std::runtime_error("Missing required parameter: low_noise_amplifier");
+    }
+    if (!data_rate) {
+        throw std::runtime_error("Missing required parameter: data_rate");
+    }
+    if (!address_width) {
+        throw std::runtime_error("Missing required parameter: address_width");
     }
 }
 

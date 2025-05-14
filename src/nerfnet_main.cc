@@ -39,13 +39,17 @@ constexpr char kDescription[] =
 
 // The version of the program.
 constexpr char kVersion[] = "0.0.1";
-//Stats object to hold the stats
+// Stats object to hold the stats
 
 Logger::LogPrinter logger;
 
-
 // Auto Negotiation of the radio interface.
-RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin, uint16_t channel, uint32_t discovery_address = 0xFFFABABA)
+RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin,
+                                      uint16_t channel,
+                                      uint32_t discovery_address,
+                                      uint8_t power_level,
+                                      bool lna,
+                                      uint8_t data_rate)
 {
 
   enum class PacketType
@@ -63,20 +67,25 @@ RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin, uint16_t channel, uint32_
   CHECK(channel < 128, "Channel must be between 0 and 127");
   CHECK(radio_.begin(), "Failed to start NRF24L01");
   radio_.setChannel(channel);
-  radio_.setPALevel(RF24_PA_MAX);
+  radio_.setPALevel(RF24_PA_MIN, false);
   radio_.setDataRate(RF24_2MBPS);
   radio_.setAddressWidth(3);
-  radio_.setAutoAck(1);
-  radio_.setRetries(0, 15);
+  radio_.setAutoAck(true);
+  radio_.setRetries(0, 5);
   radio_.setCRCLength(RF24_CRC_8);
   CHECK(radio_.isChipConnected(), "NRF24L01 is unavailable");
+
+  // radio_.powerDown();
+  // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // radio_.powerUp();
+  // std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   radio_.openWritingPipe(discovery_address);
   radio_.openReadingPipe(1, discovery_address);
 
   // Transmit discovery packet
   radio_.stopListening();
-
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   if (request.size() > kMaxPacketSize)
   {
     LOGE("Request is too large (%zu vs %zu)", request.size(), kMaxPacketSize);
@@ -87,10 +96,10 @@ RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin, uint16_t channel, uint32_
     LOGE("Failed to write request");
   }
 
-  while (!radio_.txStandBy())
-  {
-    LOGI("Waiting for transmit standby");
-  }
+  // while (!radio_.txStandBy())
+  // {
+  //   LOGI("Waiting for transmit standby");
+  // }
 
   // Receive
   radio_.startListening();
@@ -100,7 +109,7 @@ RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin, uint16_t channel, uint32_
     {
       std::vector<uint8_t> response(kMaxPacketSize);
       radio_.read(response.data(), response.size());
-      LOGI("Received %d bytes from the tunnel", response.size());
+      LOGI("Received %d bytes from the radio", response.size());
       if (response.size() > 0)
       {
         if (response[0] == static_cast<uint8_t>(PacketType::DiscoverResponse))
@@ -217,11 +226,17 @@ int main(int argc, char **argv)
     MessageFragmentationLayer fragmentation_layer;
 
     AckLayer ack_layer(1);
-    //ack_layer.Enable(false);
+    ack_layer.Enable(false);
     nerfnet::MeshRadioInterface radio_interface(
-        config.ce_pin.value(), 0,
+        config.ce_pin.value(),
+        0,
         0x55, 0x66,
-        config.channel.value(), config.poll_interval.value());
+        config.channel.value(),
+        config.poll_interval.value(),
+        config.discovery_address.value(),
+        config.power_level.value(),
+        config.low_noise_amplifier.value(),
+        config.data_rate.value());
 
     tunnel_interface.SetDownstreamLayer(&fragmentation_layer);
     fragmentation_layer.SetDownstreamLayer(&ack_layer);
@@ -243,7 +258,11 @@ int main(int argc, char **argv)
   else if (mode == RadioMode::Automatic)
   {
     LOGI("Negotiating Radio Roles");
-    mode = AutoNegotiateRadioInterface(config.ce_pin.value(), config.channel.value());
+    mode = AutoNegotiateRadioInterface(config.ce_pin.value(), config.channel.value(),
+                                       config.discovery_address.value(),
+                                       config.power_level.value(),
+                                       config.low_noise_amplifier.value(),
+                                       config.data_rate.value());
     CHECK(mode != RadioMode::NotSet, "Failed to negotiate radio roles");
     LOGI("Negotiated Radio Roles: %s", mode == RadioMode::Primary ? "Primary" : "Secondary");
   }
@@ -251,9 +270,14 @@ int main(int argc, char **argv)
   if (mode == RadioMode::Primary)
   {
     nerfnet::PrimaryRadioInterface radio_interface(
-        config.ce_pin.value(), tunnel_fd,
+        config.ce_pin.value(),
+        tunnel_fd,
         0x55, 0x66,
-        config.channel.value(), config.poll_interval.value());
+        config.channel.value(),
+        config.poll_interval.value(),
+        config.power_level.value(),
+        config.low_noise_amplifier.value(),
+        config.data_rate.value());
     radio_interface.SetTunnelLogsEnabled(config.enable_tunnel_logs.value());
     radio_interface.Run();
   }
@@ -262,7 +286,10 @@ int main(int argc, char **argv)
     nerfnet::SecondaryRadioInterface radio_interface(
         config.ce_pin.value(), tunnel_fd,
         0x55, 0x66,
-        config.channel.value());
+        config.channel.value(),
+        config.power_level.value(),
+        config.low_noise_amplifier.value(),
+        config.data_rate.value());
     radio_interface.SetTunnelLogsEnabled(config.enable_tunnel_logs.value());
     radio_interface.Run();
   }

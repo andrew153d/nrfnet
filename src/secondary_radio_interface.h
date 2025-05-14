@@ -1,12 +1,12 @@
 /*
  * Copyright 2020 Andrew Rossignol andrew.rossignol@gmail.com
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,31 +19,36 @@
 
 #include "radio_interface.h"
 
-namespace nerfnet {
+namespace nerfnet
+{
 
-// The secondary mode radio interface.
-class SecondaryRadioInterface : public RadioInterface {
- public:
-  // Setup the secondary radio link.
-  SecondaryRadioInterface(uint16_t ce_pin, int tunnel_fd,
-                          uint32_t primary_addr, uint32_t secondary_addr,
-                          uint8_t channel);
+  // The secondary mode radio interface.
+  class SecondaryRadioInterface : public RadioInterface
+  {
+  public:
+    // Setup the secondary radio link.
+    SecondaryRadioInterface(uint16_t ce_pin, int tunnel_fd,
+                            uint32_t primary_addr, uint32_t secondary_addr,
+                            uint8_t channel,
+                            uint8_t power_level,
+                            bool lna,
+                            uint8_t data_rate);
 
-  // Runs the interface listening for commands and responding.
-  void Run();
+    // Runs the interface listening for commands and responding.
+    void Run();
 
- protected:
-  // Set to true while a payload is in flight.
-  bool payload_in_flight_;
+  protected:
+    // Set to true while a payload is in flight.
+    bool payload_in_flight_;
 
-  // Handles a request from the primary radio.
-  void HandleRequest(const std::vector<uint8_t>& request);
+    // Handles a request from the primary radio.
+    void HandleRequest(const std::vector<uint8_t> &request);
 
-  // Request handlers.
-  void HandleNetworkTunnelReset();
-  void HandleNetworkTunnelTxRx(const std::vector<uint8_t>& request);
-};
+    // Request handlers.
+    void HandleNetworkTunnelReset();
+    void HandleNetworkTunnelTxRx(const std::vector<uint8_t> &request);
+  };
 
-}  // namespace nerfnet
+} // namespace nerfnet
 
-#endif  // NERFNET_NET_SECONDARY_RADIO_INTERFACE_H_
+#endif // NERFNET_NET_SECONDARY_RADIO_INTERFACE_H_
