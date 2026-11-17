@@ -10,6 +10,7 @@ set(SOURCES
     src/utils/config_parser.cc
     src/nerfnet_main.cc
     src/utils/nrftime.cc
+    src/utils/gpio.cc
     src/primary_radio_interface.cc
     src/radio_interface.cc
     src/secondary_radio_interface.cc

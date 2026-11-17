@@ -25,6 +25,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "gpio.h"
 #include "primary_radio_interface.h"
 #include "secondary_radio_interface.h"
 #include "mesh_radio_interface.h"
@@ -64,6 +65,7 @@ RadioMode AutoNegotiateRadioInterface(uint16_t ce_pin,
   std::vector<uint8_t> request(kMaxPacketSize, 0);
   request[0] = static_cast<uint8_t>(PacketType::Discovery);
 
+  
   CHECK(channel < 128, "Channel must be between 0 and 127");
   CHECK(radio_.begin(), "Failed to start NRF24L01");
   radio_.setChannel(channel);
@@ -198,6 +200,107 @@ int OpenTunnel(const std::string_view &device_name)
 
 int main(int argc, char **argv)
 {
+  int tx_radio_ce = 29;
+  int tx_radio_csn = 53;
+  int rx_radio_ce = 59;
+  int rx_radio_csn = 52;
+
+
+  GPIO::open(tx_radio_csn, GPIO::DIRECTION_OUT);
+  GPIO::open(rx_radio_csn, GPIO::DIRECTION_OUT);
+
+  RF24 tx_radio_(tx_radio_ce, 0);
+  RF24 rx_radio_(rx_radio_ce, 10);
+
+  GPIO::write(tx_radio_csn, GPIO::OUTPUT_HIGH);
+  GPIO::write(rx_radio_csn, GPIO::OUTPUT_HIGH);
+
+  GPIO::write(tx_radio_csn, GPIO::OUTPUT_LOW);
+  if(tx_radio_.begin(tx_radio_ce, 0))
+  {
+    LOGI("TX NRF24L01 started successfully");
+  }
+  else
+  {
+    LOGE("Failed to start TX NRF24L01");
+  }
+  GPIO::write(tx_radio_csn, GPIO::OUTPUT_HIGH);
+  GPIO::write(rx_radio_csn, GPIO::OUTPUT_LOW);
+
+  if(tx_radio_.begin(tx_radio_ce, 0))
+  {
+    LOGI("RX NRF24L01 started successfully");
+  }
+  else
+  {
+    LOGE("Failed to start RX NRF24L01");
+  }
+
+  GPIO::write(rx_radio_csn, GPIO::OUTPUT_HIGH);
+  return 0;
+
+
+
+  GPIO::open(tx_radio_csn, GPIO::DIRECTION_OUT);
+  GPIO::open(rx_radio_csn, GPIO::DIRECTION_OUT);
+  GPIO::write(tx_radio_csn, GPIO::OUTPUT_HIGH);
+  GPIO::write(rx_radio_csn, GPIO::OUTPUT_HIGH);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  GPIO::write(tx_radio_csn, GPIO::OUTPUT_LOW);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  if(tx_radio_.begin(tx_radio_ce, 0))
+  {
+    LOGI("TX NRF24L01 started successfully");
+  }
+  else
+  {
+    LOGE("Failed to start TX NRF24L01");
+  }
+  tx_radio_.setChannel(1);
+  tx_radio_.setPALevel(RF24_PA_MIN, false);
+  tx_radio_.setDataRate(RF24_2MBPS);
+  tx_radio_.setAddressWidth(3);
+  tx_radio_.setAutoAck(true);
+  tx_radio_.setRetries(0, 5);
+  tx_radio_.setCRCLength(RF24_CRC_8);
+
+  if(tx_radio_.isChipConnected())
+  {
+    LOGI("TX NRF24L01 is connected");
+  }
+  else
+  {
+    LOGE("TX NRF24L01 is not connected");
+  }
+  
+  GPIO::write(tx_radio_csn, GPIO::OUTPUT_HIGH);
+  GPIO::write(rx_radio_csn, GPIO::OUTPUT_LOW);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  CHECK(rx_radio_.begin(rx_radio_ce, 0), "Failed to start RX NRF24L01");
+  rx_radio_.setChannel(1);
+  rx_radio_.setPALevel(RF24_PA_MIN, false);
+  rx_radio_.setDataRate(RF24_2MBPS);
+  rx_radio_.setAddressWidth(3);
+  rx_radio_.setAutoAck(true);
+  rx_radio_.setRetries(0, 5);
+  rx_radio_.setCRCLength(RF24_CRC_8);
+  CHECK(rx_radio_.isChipConnected(), "RX NRF24L01 is unavailable");
+
+  if(rx_radio_.isChipConnected())
+  {
+    LOGI("RX NRF24L01 is connected");
+  }
+  else
+  {
+    LOGE("RX NRF24L01 is not connected");
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  GPIO::write(rx_radio_csn, GPIO::OUTPUT_HIGH);
+  
+
+
+  return 0;
   // Load configuration file
   ConfigParser config("/etc/nrfnet/nrfnet.conf");
   config.load();

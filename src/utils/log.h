@@ -38,7 +38,7 @@
 #define COLOR_WHITE "\033[37m"
 
 #define NUM_LINES_LOGGED 20
-#define ENABLE_TABLE_PRINTING
+//#define ENABLE_TABLE_PRINTING
 
 // Clear the console and move cursor to top-left
 #define CLEAR_SCREEN() printf("\033[2J\033[H")
@@ -66,8 +66,10 @@ namespace Logger
   public:
     LogPrinter()
     {
+      #ifdef ENABLE_TABLE_PRINTING
       thread_ = std::thread(&LogPrinter::log_thread, this);
-      printf(COLOR_GREEN "Logger thread started\n" COLOR_RESET);
+      #endif
+      //printf(COLOR_GREEN "Logger thread started\n" COLOR_RESET);
     }
 
     ~LogPrinter()
@@ -151,7 +153,7 @@ namespace Logger
 
         printf("%s", string_message.c_str());
       }
-      printf(COLOR_RED "Logger thread exiting\n" COLOR_RESET);
+      //printf(COLOR_RED "Logger thread exiting\n" COLOR_RESET);
     }
 
     void print()
